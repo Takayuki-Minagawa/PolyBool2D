@@ -1,5 +1,6 @@
 import type { Point } from './types';
 import { pointInRing } from './intersections';
+import { distance } from './numeric';
 
 export type SnapMode = 'grid' | 'vertex' | 'edge' | 'midpoint';
 
@@ -15,12 +16,6 @@ export function snapToGrid(p: Point, gridSize: number): Point {
     x: Math.round(p.x / gridSize) * gridSize,
     y: Math.round(p.y / gridSize) * gridSize,
   };
-}
-
-function distance(a: Point, b: Point): number {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.sqrt(dx * dx + dy * dy);
 }
 
 export function nearestVertex(p: Point, vertices: Point[]): { point: Point; distance: number } | null {
