@@ -19,6 +19,7 @@ export function App() {
   const undo = useAppStore((s) => s.undo);
   const redo = useAppStore((s) => s.redo);
   const removeEntities = useAppStore((s) => s.removeEntities);
+  const selectAll = useAppStore((s) => s.selectAll);
   const toggleGrid = useAppStore((s) => s.toggleGrid);
   const toggleSnap = useAppStore((s) => s.toggleSnap);
 
@@ -62,6 +63,16 @@ export function App() {
         else undo();
         return;
       }
+      if (cmd && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (cmd && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        selectAll();
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const sel = useAppStore.getState().selectedEntityIds;
         if (sel.length > 0) {
@@ -99,7 +110,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setActiveTool, undo, redo, removeEntities, toggleGrid, toggleSnap]);
+  }, [setActiveTool, undo, redo, removeEntities, selectAll, toggleGrid, toggleSnap]);
 
   return (
     <div className="app-shell">

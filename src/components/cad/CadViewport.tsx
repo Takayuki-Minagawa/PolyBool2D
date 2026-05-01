@@ -1,8 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import type { Point } from '../../geometry/types';
-import type { PolygonEntity, ViewTransform } from '../../app/projectTypes';
-import { screenToWorld } from '../../app/transform';
+import type { PolygonEntity } from '../../app/projectTypes';
+import {
+  boundsForEntities,
+  defaultView,
+  fitBoundsToView,
+  screenToWorld,
+} from '../../app/transform';
 import { snapToGrid, nearestVertex, nearestEdgePoint } from '../../geometry/snap';
 import { Grid } from './Grid';
 import { PolygonShape } from './PolygonShape';
@@ -10,6 +16,7 @@ import { VertexHandles } from './VertexHandles';
 import { ToolPreview } from './ToolPreview';
 
 export function CadViewport() {
+  const { t } = useTranslation();
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -46,6 +53,19 @@ export function CadViewport() {
   const knifeStartRef = useRef<Point | null>(null);
   const shiftKeyRef = useRef(false);
   const spaceKeyRef = useRef(false);
+
+  const fitViewToContent = useCallback(() => {
+    const entities =
+      selectedIds.length > 0
+        ? project.entities.filter((entity) => selectedIds.includes(entity.id))
+        : project.entities;
+    const bounds = boundsForEntities(entities);
+    setView(
+      bounds
+        ? fitBoundsToView(bounds, size.width, size.height)
+        : defaultView(size.width, size.height),
+    );
+  }, [project.entities, selectedIds, setView, size.height, size.width]);
 
   useLayoutEffect(() => {
     if (!wrapRef.current) return;
@@ -330,8 +350,20 @@ export function CadViewport() {
   // keyboard
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const isTyping = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA';
       if (e.key === 'Shift') shiftKeyRef.current = true;
-      if (e.key === ' ') spaceKeyRef.current = true;
+      if (!isTyping && e.key === ' ') spaceKeyRef.current = true;
+      if (
+        !isTyping &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === 'f'
+      ) {
+        e.preventDefault();
+        fitViewToContent();
+      }
       if (e.key === 'Escape') {
         setPreview({ type: 'none' });
         rectStartRef.current = null;
@@ -360,7 +392,7 @@ export function CadViewport() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [addPolygonFromOuter, setActiveTool, setPreview]);
+  }, [addPolygonFromOuter, fitViewToContent, setActiveTool, setPreview]);
 
   return (
     <div className="canvas-wrap" ref={wrapRef}>
@@ -414,13 +446,12 @@ export function CadViewport() {
           circleSegments={project.settings.circleSegments}
         />
       </svg>
-      <div style={{ position: 'absolute', bottom: 8, right: 12, fontSize: 11, color: 'var(--fg-muted)' }}>
-        {(view.scale * 100).toFixed(1)}%
+      <div className="viewport-controls">
+        <button onClick={fitViewToContent} title={`${t('toolbar.fit')} (F)`}>
+          {t('toolbar.fit')}
+        </button>
+        <span>{(view.scale * 100).toFixed(1)}%</span>
       </div>
     </div>
   );
-}
-
-export function fitView(view: ViewTransform): ViewTransform {
-  return view;
 }

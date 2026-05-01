@@ -23,6 +23,10 @@ export function Toolbar() {
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
   const differenceSelected = useAppStore((s) => s.differenceSelected);
   const removeEntities = useAppStore((s) => s.removeEntities);
+  const selectAll = useAppStore((s) => s.selectAll);
+  const selectableCount = useAppStore(
+    (s) => s.project.entities.filter((e) => e.type === 'polygon').length,
+  );
 
   return (
     <aside className="toolbar">
@@ -76,6 +80,13 @@ export function Toolbar() {
       </div>
 
       <div className="toolbar-section">
+        <button
+          onClick={() => selectAll()}
+          disabled={selectableCount === 0 || selectedIds.length === selectableCount}
+          title="Ctrl/⌘+A"
+        >
+          {t('toolbar.selectAll')}
+        </button>
         <button
           onClick={() => removeEntities(selectedIds)}
           disabled={selectedIds.length === 0}
