@@ -3,13 +3,13 @@ import {
   EPS_SQ,
   clamp01,
   cross,
+  distanceSq,
   linePointTolerance,
   lerpPoint,
   orientationTolerance,
   parameterTolerance,
   pointOnSegment,
   pointsAlmostEqual,
-  segmentLength,
   segmentParameter,
 } from './numeric';
 
@@ -28,10 +28,8 @@ export function segmentIntersection(
   const dyA = a2.y - a1.y;
   const dxB = b2.x - b1.x;
   const dyB = b2.y - b1.y;
-  const lenA = segmentLength(a1, a2);
-  const lenB = segmentLength(b1, b2);
-  const lenA2 = lenA * lenA;
-  const lenB2 = lenB * lenB;
+  const lenA2 = distanceSq(a1, a2);
+  const lenB2 = distanceSq(b1, b2);
 
   if (lenA2 <= EPS_SQ && lenB2 <= EPS_SQ) {
     return pointsAlmostEqual(a1, b1)
@@ -59,6 +57,8 @@ export function segmentIntersection(
     };
   }
 
+  const lenA = Math.sqrt(lenA2);
+  const lenB = Math.sqrt(lenB2);
   const denom = cross(dxA, dyA, dxB, dyB);
   const denomTol = orientationTolerance(dxA, dyA, dxB, dyB);
 
@@ -130,8 +130,10 @@ export function pointInRing(point: Point, ring: Point[]): boolean {
     const xj = ring[j].x;
     const yj = ring[j].y;
     if (pointOnSegment(point, ring[j], ring[i])) return true;
+    const straddlesY = (yi > point.y) !== (yj > point.y);
+    // When the edge straddles point.y, yj - yi is non-zero.
     const intersect =
-      yi > point.y !== yj > point.y &&
+      straddlesY &&
       point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
     if (intersect) inside = !inside;
   }
