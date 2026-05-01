@@ -30,7 +30,6 @@ Draw, edit, perform boolean operations, and split polygons with a knife to compu
 | `Delete` / `Backspace` | Delete selection |
 | `Ctrl/⌘ + Z` | Undo |
 | `Ctrl/⌘ + Shift + Z` | Redo |
-| `F` | Fit view |
 | `G` | Toggle grid |
 | `S` | Toggle snap |
 
@@ -59,9 +58,8 @@ Draw, edit, perform boolean operations, and split polygons with a knife to compu
 Select a polygon to reveal vertex handles:
 
 - Drag handles to move vertices
-- Type X/Y in the property panel's coordinate table
-- Click on an edge to insert a vertex; press `Delete` on a vertex to remove
-- Outer ring and holes both require 3+ points
+- Type outer-ring X/Y values in the property panel's coordinate table
+- Vertex insertion and per-vertex deletion are not implemented yet
 
 ---
 
@@ -84,7 +82,7 @@ Example: select a rectangle, `Shift`-click a circle → **Difference** carves a 
 1. Select the polygon to split.
 2. Pick **Knife** in the toolbar.
 3. Drag a straight line that crosses the outer boundary at exactly 2 points.
-4. Press `Enter` to confirm. Total area before/after is preserved.
+4. Release the drag to run the split. Total area before/after is preserved.
 
 > The current MVP supports **simple polygons × single line × 2 intersections** only.
 
@@ -93,7 +91,7 @@ Example: select a rectangle, `Shift`-click a circle → **Difference** carves a 
 ## 7. Area
 
 - The **net area** = outer area − sum of hole areas
-- Internal coordinates are mm; display unit defaults to m² (configurable)
+- The default coordinate unit is mm; area is displayed in m²
 - The property panel shows totals for selection and project
 
 ---
@@ -110,5 +108,6 @@ Example: select a rectangle, `Shift`-click a circle → **Difference** carves a 
 
 - Knife: single line, exactly 2 intersections
 - Self-intersecting polygons not supported
+- Vertex insertion and per-vertex deletion are not implemented yet
 - Circles are polygon approximations
 - 3D / BIM integrations out of scope
