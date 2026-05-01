@@ -1,0 +1,71 @@
+:root {
+  --bg-app: #f5f6f8;
+  --bg-panel: #ffffff;
+  --bg-toolbar: #eef0f4;
+  --bg-canvas: #fafafa;
+  --bg-button: #ffffff;
+  --bg-button-hover: #e7eaf0;
+  --bg-button-active: #3a8dde;
+  --bg-button-active-fg: #ffffff;
+  --bg-modal: rgba(20, 24, 32, 0.5);
+  --bg-modal-panel: #ffffff;
+
+  --fg-default: #1f2933;
+  --fg-muted: #6b7280;
+  --fg-button: #1f2933;
+  --fg-error: #b03a2e;
+  --fg-link: #2862c0;
+
+  --border-default: #d6d9df;
+  --border-strong: #a1a8b3;
+
+  --cad-grid-color: #d8dde5;
+  --cad-grid-major: #b9c0cc;
+  --cad-axis-color: #8c95a3;
+  --cad-fill: rgba(58, 141, 222, 0.18);
+  --cad-stroke: #2862c0;
+  --cad-selected-stroke: #ff7a00;
+  --cad-handle-fill: #ffffff;
+  --cad-handle-stroke: #2862c0;
+  --cad-snap-color: #ff7a00;
+  --cad-preview-color: #58c0ff;
+  --cad-knife-color: #d63a3a;
+
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] {
+  --bg-app: #1a1d23;
+  --bg-panel: #232830;
+  --bg-toolbar: #1f242b;
+  --bg-canvas: #14171c;
+  --bg-button: #2a3038;
+  --bg-button-hover: #353c46;
+  --bg-button-active: #4d97e4;
+  --bg-button-active-fg: #0d1116;
+  --bg-modal: rgba(0, 0, 0, 0.7);
+  --bg-modal-panel: #232830;
+
+  --fg-default: #e5e7eb;
+  --fg-muted: #9aa3af;
+  --fg-button: #e5e7eb;
+  --fg-error: #ff7a6b;
+  --fg-link: #7fb3ff;
+
+  --border-default: #353c46;
+  --border-strong: #4a525e;
+
+  --cad-grid-color: #2c3138;
+  --cad-grid-major: #3d434c;
+  --cad-axis-color: #5a6270;
+  --cad-fill: rgba(77, 151, 228, 0.22);
+  --cad-stroke: #7fb3ff;
+  --cad-selected-stroke: #ffb066;
+  --cad-handle-fill: #14171c;
+  --cad-handle-stroke: #7fb3ff;
+  --cad-snap-color: #ffb066;
+  --cad-preview-color: #58c0ff;
+  --cad-knife-color: #ff6464;
+
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+}

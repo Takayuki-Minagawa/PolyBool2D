@@ -1,0 +1,102 @@
+{
+  "app": {
+    "title": "PolyBool2D",
+    "subtitle": "2D ポリゴン CAD"
+  },
+  "header": {
+    "newProject": "新規",
+    "open": "開く",
+    "save": "保存",
+    "export": "エクスポート",
+    "import": "インポート",
+    "undo": "元に戻す",
+    "redo": "やり直し",
+    "manual": "マニュアル",
+    "theme": {
+      "light": "ライト",
+      "dark": "ダーク"
+    },
+    "language": {
+      "label": "言語",
+      "ja": "日本語",
+      "en": "English"
+    }
+  },
+  "toolbar": {
+    "select": "選択",
+    "pan": "パン",
+    "polygon": "ポリゴン",
+    "rectangle": "矩形",
+    "circle": "円",
+    "knife": "ナイフ",
+    "union": "結合",
+    "difference": "くり抜き",
+    "vertexEdit": "頂点編集",
+    "fit": "全体表示",
+    "gridOn": "グリッド ON",
+    "gridOff": "グリッド OFF",
+    "snapOn": "スナップ ON",
+    "snapOff": "スナップ OFF",
+    "delete": "削除"
+  },
+  "panel": {
+    "noSelection": "選択中の図形なし",
+    "totalArea": "全体面積",
+    "entityCount": "図形数",
+    "selectedCount": "選択数",
+    "polygonName": "図形名",
+    "layer": "レイヤー",
+    "area": "実面積",
+    "outerArea": "外周面積",
+    "holeArea": "穴面積",
+    "vertexCount": "頂点数",
+    "holeCount": "穴数",
+    "vertices": "頂点座標",
+    "x": "X",
+    "y": "Y",
+    "delete": "削除",
+    "settings": "プロジェクト設定",
+    "gridSize": "グリッド間隔",
+    "circleSegments": "円分割数",
+    "areaPrecision": "面積小数桁",
+    "coordPrecision": "座標小数桁",
+    "unit": "単位",
+    "unionAction": "選択を結合",
+    "differenceAction": "差分を実行",
+    "differenceHint": "1つを対象、残りをカッターとして実行",
+    "differenceSubject": "対象（最初の選択）"
+  },
+  "status": {
+    "tool": "ツール",
+    "snap": "スナップ",
+    "grid": "グリッド",
+    "cursor": "カーソル",
+    "selected": "選択面積",
+    "guidePolygon": "クリックで頂点追加 / Enter 確定 / Esc 取消",
+    "guideRectangle": "ドラッグで矩形を作成（Shift で正方形）",
+    "guideCircle": "中心からドラッグで円を作成",
+    "guideKnife": "図形を横切る直線を引く / Enter 確定",
+    "guideSelect": "図形をクリックして選択（Shift で追加）",
+    "guidePan": "ドラッグで画面を移動 / ホイールでズーム"
+  },
+  "errors": {
+    "invalidPolygon": "不正な形状のため作成できません。",
+    "unionNeedsTwo": "結合には2つ以上の図形を選択してください。",
+    "subjectNotSelected": "差分の対象が選択されていません。",
+    "cutterNotSelected": "差分のカッターが選択されていません。",
+    "emptyResult": "演算結果が空でした。",
+    "knifeNoTarget": "ナイフ対象の図形が指定されていません。",
+    "knife": {
+      "no-intersection": "ナイフ線が図形を横切っていません。",
+      "not-two-intersections": "ナイフ線は外周をちょうど2点で横切る必要があります。",
+      "has-holes": "穴のあるポリゴンの分割は未対応です。",
+      "areaMismatch": "分割前後の面積が一致しません。"
+    },
+    "importInvalid": "不正なJSONファイルです。",
+    "saveFailed": "保存に失敗しました。"
+  },
+  "manual": {
+    "title": "操作マニュアル",
+    "close": "閉じる"
+  }
+}
