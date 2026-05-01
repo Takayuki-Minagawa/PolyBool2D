@@ -1,0 +1,102 @@
+{
+  "app": {
+    "title": "PolyBool2D",
+    "subtitle": "2D Polygon CAD"
+  },
+  "header": {
+    "newProject": "New",
+    "open": "Open",
+    "save": "Save",
+    "export": "Export",
+    "import": "Import",
+    "undo": "Undo",
+    "redo": "Redo",
+    "manual": "Manual",
+    "theme": {
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "language": {
+      "label": "Language",
+      "ja": "日本語",
+      "en": "English"
+    }
+  },
+  "toolbar": {
+    "select": "Select",
+    "pan": "Pan",
+    "polygon": "Polygon",
+    "rectangle": "Rectangle",
+    "circle": "Circle",
+    "knife": "Knife",
+    "union": "Union",
+    "difference": "Difference",
+    "vertexEdit": "Vertex edit",
+    "fit": "Fit view",
+    "gridOn": "Grid ON",
+    "gridOff": "Grid OFF",
+    "snapOn": "Snap ON",
+    "snapOff": "Snap OFF",
+    "delete": "Delete"
+  },
+  "panel": {
+    "noSelection": "Nothing selected",
+    "totalArea": "Total area",
+    "entityCount": "Entities",
+    "selectedCount": "Selected",
+    "polygonName": "Name",
+    "layer": "Layer",
+    "area": "Net area",
+    "outerArea": "Outer area",
+    "holeArea": "Hole area",
+    "vertexCount": "Vertices",
+    "holeCount": "Holes",
+    "vertices": "Vertex coordinates",
+    "x": "X",
+    "y": "Y",
+    "delete": "Delete",
+    "settings": "Project settings",
+    "gridSize": "Grid size",
+    "circleSegments": "Circle segments",
+    "areaPrecision": "Area decimals",
+    "coordPrecision": "Coord decimals",
+    "unit": "Unit",
+    "unionAction": "Union selection",
+    "differenceAction": "Run difference",
+    "differenceHint": "First selected = subject; rest = cutters",
+    "differenceSubject": "Subject (first selected)"
+  },
+  "status": {
+    "tool": "Tool",
+    "snap": "Snap",
+    "grid": "Grid",
+    "cursor": "Cursor",
+    "selected": "Selected area",
+    "guidePolygon": "Click to add vertex / Enter to confirm / Esc to cancel",
+    "guideRectangle": "Drag to create rectangle (Shift = square)",
+    "guideCircle": "Drag from center to create circle",
+    "guideKnife": "Draw a line crossing the polygon / Enter to confirm",
+    "guideSelect": "Click to select (Shift to add)",
+    "guidePan": "Drag to pan / wheel to zoom"
+  },
+  "errors": {
+    "invalidPolygon": "Cannot create — invalid shape.",
+    "unionNeedsTwo": "Select two or more polygons to union.",
+    "subjectNotSelected": "No subject selected for difference.",
+    "cutterNotSelected": "No cutter selected for difference.",
+    "emptyResult": "Boolean result was empty.",
+    "knifeNoTarget": "No knife target.",
+    "knife": {
+      "no-intersection": "Knife line doesn't cross the polygon.",
+      "not-two-intersections": "Knife line must cross the outer boundary at exactly 2 points.",
+      "has-holes": "Polygons with holes aren't supported by knife yet.",
+      "areaMismatch": "Total area before/after split mismatch."
+    },
+    "importInvalid": "Invalid JSON file.",
+    "saveFailed": "Save failed."
+  },
+  "manual": {
+    "title": "User Manual",
+    "close": "Close"
+  }
+}
