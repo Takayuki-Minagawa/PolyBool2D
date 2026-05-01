@@ -46,6 +46,7 @@ export type AppState = {
   setPreview: (preview: DrawingPreview) => void;
   selectEntity: (id: string, additive: boolean) => void;
   selectMany: (ids: string[]) => void;
+  selectAll: () => void;
   clearSelection: () => void;
   addPolygonFromOuter: (
     outer: Point[],
@@ -130,6 +131,13 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }),
 
   selectMany: (ids) => set({ selectedEntityIds: ids }),
+
+  selectAll: () =>
+    set((s) => ({
+      selectedEntityIds: s.project.entities
+        .filter((e): e is PolygonEntity => e.type === 'polygon')
+        .map((e) => e.id),
+    })),
 
   clearSelection: () => set({ selectedEntityIds: [] }),
 

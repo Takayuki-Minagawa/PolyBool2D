@@ -28,8 +28,10 @@ PolyBool2D は、建築設計などで利用する **2D ポリゴン CAD Web ア
 | `Enter` | 作図確定 |
 | `Esc` | 作図キャンセル |
 | `Delete` / `Backspace` | 選択削除 |
+| `Ctrl/⌘ + A` | 全選択 |
 | `Ctrl/⌘ + Z` | 元に戻す |
-| `Ctrl/⌘ + Shift + Z` | やり直し |
+| `Ctrl/⌘ + Shift + Z` / `Ctrl/⌘ + Y` | やり直し |
+| `F` | 選択範囲または全体を表示 |
 | `G` | グリッド ON/OFF |
 | `S` | スナップ ON/OFF |
 

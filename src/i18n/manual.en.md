@@ -28,8 +28,10 @@ Draw, edit, perform boolean operations, and split polygons with a knife to compu
 | `Enter` | Confirm |
 | `Esc` | Cancel |
 | `Delete` / `Backspace` | Delete selection |
+| `Ctrl/⌘ + A` | Select all |
 | `Ctrl/⌘ + Z` | Undo |
-| `Ctrl/⌘ + Shift + Z` | Redo |
+| `Ctrl/⌘ + Shift + Z` / `Ctrl/⌘ + Y` | Redo |
+| `F` | Fit selection or all content |
 | `G` | Toggle grid |
 | `S` | Toggle snap |
 

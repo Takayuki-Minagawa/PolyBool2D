@@ -11,6 +11,8 @@ export function Header() {
   const project = useAppStore((s) => s.project);
   const undo = useAppStore((s) => s.undo);
   const redo = useAppStore((s) => s.redo);
+  const canUndo = useAppStore((s) => s.history.past.length > 0);
+  const canRedo = useAppStore((s) => s.history.future.length > 0);
   const reset = useAppStore((s) => s.resetProject);
   const loadProject = useAppStore((s) => s.loadProject);
   const setErrorMessage = useAppStore((s) => s.setErrorMessage);
@@ -64,10 +66,10 @@ export function Header() {
       </div>
 
       <div className="group">
-        <button onClick={() => undo()} title="Ctrl/⌘+Z">
+        <button onClick={() => undo()} disabled={!canUndo} title="Ctrl/⌘+Z">
           {t('header.undo')}
         </button>
-        <button onClick={() => redo()} title="Ctrl/⌘+Shift+Z">
+        <button onClick={() => redo()} disabled={!canRedo} title="Ctrl/⌘+Shift+Z / Ctrl/⌘+Y">
           {t('header.redo')}
         </button>
       </div>
