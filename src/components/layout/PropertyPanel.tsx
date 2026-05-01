@@ -1,8 +1,55 @@
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import { polygonArea, signedRingArea } from '../../geometry/area';
 import { defaultEngine } from '../../geometry/geometryEngine';
 import type { PolygonEntity } from '../../app/projectTypes';
+
+type VertexInputProps = {
+  value: number;
+  decimals: number;
+  onCommit: (v: number) => void;
+};
+
+function VertexInput({ value, decimals, onCommit }: VertexInputProps) {
+  const formatted = value.toFixed(decimals);
+  const [text, setText] = useState(formatted);
+  const lastValueRef = useRef(value);
+
+  useEffect(() => {
+    if (lastValueRef.current !== value) {
+      lastValueRef.current = value;
+      setText(value.toFixed(decimals));
+    }
+  }, [value, decimals]);
+
+  function commit() {
+    const v = Number(text);
+    if (Number.isFinite(v) && v !== value) {
+      onCommit(v);
+    } else {
+      setText(value.toFixed(decimals));
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      step="any"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          (e.currentTarget as HTMLInputElement).blur();
+        } else if (e.key === 'Escape') {
+          setText(value.toFixed(decimals));
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
+}
 
 const UNIT_FACTOR: Record<'mm' | 'cm' | 'm', number> = {
   mm: 1,
@@ -111,16 +158,13 @@ export function PropertyPanel() {
             </thead>
             <tbody>
               {ent.geometry.outer.map((p, i) => (
-                <tr key={i}>
+                <tr key={`${ent.id}-${i}`}>
                   <td>{i + 1}</td>
                   <td>
-                    <input
-                      type="number"
-                      step="any"
-                      defaultValue={p.x.toFixed(coordDecimals)}
-                      onBlur={(e) => {
-                        const v = Number(e.target.value);
-                        if (!Number.isFinite(v)) return;
+                    <VertexInput
+                      value={p.x}
+                      decimals={coordDecimals}
+                      onCommit={(v) => {
                         const outer = ent.geometry.outer.map((pp, idx) =>
                           idx === i ? { x: v, y: pp.y } : pp,
                         );
@@ -132,13 +176,10 @@ export function PropertyPanel() {
                     />
                   </td>
                   <td>
-                    <input
-                      type="number"
-                      step="any"
-                      defaultValue={p.y.toFixed(coordDecimals)}
-                      onBlur={(e) => {
-                        const v = Number(e.target.value);
-                        if (!Number.isFinite(v)) return;
+                    <VertexInput
+                      value={p.y}
+                      decimals={coordDecimals}
+                      onCommit={(v) => {
                         const outer = ent.geometry.outer.map((pp, idx) =>
                           idx === i ? { x: pp.x, y: v } : pp,
                         );

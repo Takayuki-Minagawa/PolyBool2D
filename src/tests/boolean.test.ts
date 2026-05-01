@@ -35,3 +35,35 @@ describe('boolean operations', () => {
     expect(r.length).toBe(0);
   });
 });
+
+describe('appStore differenceSelected', () => {
+  it('removes the subject when difference fully consumes it (empty result)', async () => {
+    const { useAppStore } = await import('../app/appStore');
+    const { createPolygonEntity } = await import('../app/projectFactory');
+    useAppStore.getState().resetProject();
+
+    const inner = createPolygonEntity({
+      outer: rectangleToRing({ x: 10, y: 10 }, { x: 90, y: 90 }),
+      holes: [],
+    });
+    const big = createPolygonEntity({
+      outer: rectangleToRing({ x: 0, y: 0 }, { x: 100, y: 100 }),
+      holes: [],
+    });
+    useAppStore.setState((s) => ({
+      project: { ...s.project, entities: [inner, big] },
+    }));
+
+    useAppStore.getState().differenceSelected(inner.id, [big.id]);
+
+    const after = useAppStore.getState();
+    expect(after.project.entities.find((e) => e.id === inner.id)).toBeUndefined();
+    expect(after.project.entities.find((e) => e.id === big.id)).toBeUndefined();
+    expect(after.selectedEntityIds).toEqual([]);
+    expect(after.history.past.length).toBe(1);
+
+    useAppStore.getState().undo();
+    const restored = useAppStore.getState();
+    expect(restored.project.entities.length).toBe(2);
+  });
+});

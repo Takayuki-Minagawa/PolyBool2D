@@ -262,10 +262,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
       [subject.geometry],
       cutters.map((c) => c.geometry),
     );
-    if (result.length === 0) {
-      get().setErrorMessage('errors.emptyResult');
-      return;
-    }
     get().pushHistory();
     const newEntities: PolygonEntity[] = result.map((g) =>
       createPolygonEntity(g, {
