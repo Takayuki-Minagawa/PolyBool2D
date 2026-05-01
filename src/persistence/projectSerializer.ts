@@ -48,22 +48,41 @@ function parseLayer(v: unknown): Layer | null {
   };
 }
 
+const MAX_PRECISION = 12;
+const MAX_GRID_SIZE = 1_000_000;
+const MAX_SNAP_TOLERANCE_PX = 200;
+const MAX_CIRCLE_SEGMENTS = 4096;
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}
+
 function parseSettings(v: unknown): ProjectSettings {
   if (!isObject(v)) return { ...DEFAULT_SETTINGS };
   const s: ProjectSettings = { ...DEFAULT_SETTINGS };
-  if (typeof v.gridSize === 'number' && v.gridSize > 0) s.gridSize = v.gridSize;
+  if (isFiniteNumber(v.gridSize) && v.gridSize > 0) {
+    s.gridSize = clamp(v.gridSize, 1, MAX_GRID_SIZE);
+  }
   if (typeof v.snapEnabled === 'boolean') s.snapEnabled = v.snapEnabled;
   if (typeof v.snapToGrid === 'boolean') s.snapToGrid = v.snapToGrid;
   if (typeof v.snapToVertex === 'boolean') s.snapToVertex = v.snapToVertex;
   if (typeof v.snapToEdge === 'boolean') s.snapToEdge = v.snapToEdge;
-  if (typeof v.snapTolerancePx === 'number' && v.snapTolerancePx > 0)
-    s.snapTolerancePx = v.snapTolerancePx;
-  if (typeof v.areaPrecision === 'number' && v.areaPrecision >= 0)
-    s.areaPrecision = Math.floor(v.areaPrecision);
-  if (typeof v.coordinatePrecision === 'number' && v.coordinatePrecision >= 0)
-    s.coordinatePrecision = Math.floor(v.coordinatePrecision);
-  if (typeof v.circleSegments === 'number' && v.circleSegments >= 8)
-    s.circleSegments = Math.floor(v.circleSegments);
+  if (isFiniteNumber(v.snapTolerancePx) && v.snapTolerancePx > 0) {
+    s.snapTolerancePx = clamp(v.snapTolerancePx, 1, MAX_SNAP_TOLERANCE_PX);
+  }
+  if (isFiniteNumber(v.areaPrecision) && v.areaPrecision >= 0) {
+    s.areaPrecision = clamp(Math.floor(v.areaPrecision), 0, MAX_PRECISION);
+  }
+  if (isFiniteNumber(v.coordinatePrecision) && v.coordinatePrecision >= 0) {
+    s.coordinatePrecision = clamp(Math.floor(v.coordinatePrecision), 0, MAX_PRECISION);
+  }
+  if (isFiniteNumber(v.circleSegments) && v.circleSegments >= 8) {
+    s.circleSegments = clamp(Math.floor(v.circleSegments), 8, MAX_CIRCLE_SEGMENTS);
+  }
   return s;
 }
 
