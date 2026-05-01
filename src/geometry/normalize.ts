@@ -6,12 +6,14 @@ import type {
   Ring,
 } from './types';
 import { EPS } from './types';
+import { pointsAlmostEqual, ringAreaTolerance } from './numeric';
 
 const ROUND_DECIMALS = 9;
 const ROUND_FACTOR = 10 ** ROUND_DECIMALS;
 
 export function roundCoord(v: number): number {
-  return Math.round(v * ROUND_FACTOR) / ROUND_FACTOR;
+  const rounded = Math.round(v * ROUND_FACTOR) / ROUND_FACTOR;
+  return Object.is(rounded, -0) ? 0 : rounded;
 }
 
 export function roundPoint(p: Point): Point {
@@ -19,7 +21,7 @@ export function roundPoint(p: Point): Point {
 }
 
 export function pointsEqual(a: Point, b: Point, eps = EPS): boolean {
-  return Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <= eps;
+  return pointsAlmostEqual(a, b, eps);
 }
 
 export function dedupeAdjacent(ring: Ring, eps = EPS): Ring {
@@ -40,7 +42,9 @@ export function normalizeRing(ring: Ring): Ring | null {
   const rounded = ring.map(roundPoint);
   const cleaned = dedupeAdjacent(rounded);
   if (cleaned.length < 3) return null;
-  if (Math.abs(signedRingArea(cleaned)) < EPS * 1000) return null;
+  if (Math.abs(signedRingArea(cleaned)) < ringAreaTolerance(cleaned)) {
+    return null;
+  }
   return cleaned;
 }
 

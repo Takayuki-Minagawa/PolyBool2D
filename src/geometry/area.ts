@@ -4,15 +4,26 @@ import type {
   Point,
   Ring,
 } from './types';
+import {
+  addCompensated,
+  compensatedTotal,
+  createCompensatedSum,
+} from './numeric';
 
 export function signedRingArea(ring: Ring): number {
-  let sum = 0;
+  if (ring.length < 3) return 0;
+  const origin = ring[0];
+  const sum = createCompensatedSum();
   for (let i = 0; i < ring.length; i++) {
     const a = ring[i];
     const b = ring[(i + 1) % ring.length];
-    sum += a.x * b.y - b.x * a.y;
+    const ax = a.x - origin.x;
+    const ay = a.y - origin.y;
+    const bx = b.x - origin.x;
+    const by = b.y - origin.y;
+    addCompensated(sum, ax * by - bx * ay);
   }
-  return sum / 2;
+  return compensatedTotal(sum) / 2;
 }
 
 export function ringIsCCW(ring: Ring): boolean {
@@ -33,8 +44,26 @@ export function multiPolygonArea(mp: MultiPolygonGeometry): number {
 }
 
 export function ringCentroid(ring: Ring): Point {
-  const a = signedRingArea(ring);
-  if (Math.abs(a) < 1e-18) {
+  if (ring.length === 0) return { x: 0, y: 0 };
+  const origin = ring[0];
+  const crossSum = createCompensatedSum();
+  const cxSum = createCompensatedSum();
+  const cySum = createCompensatedSum();
+  for (let i = 0; i < ring.length; i++) {
+    const p0 = ring[i];
+    const p1 = ring[(i + 1) % ring.length];
+    const x0 = p0.x - origin.x;
+    const y0 = p0.y - origin.y;
+    const x1 = p1.x - origin.x;
+    const y1 = p1.y - origin.y;
+    const cross = x0 * y1 - x1 * y0;
+    addCompensated(crossSum, cross);
+    addCompensated(cxSum, (x0 + x1) * cross);
+    addCompensated(cySum, (y0 + y1) * cross);
+  }
+
+  const crossTotal = compensatedTotal(crossSum);
+  if (Math.abs(crossTotal) < 1e-18) {
     let sx = 0;
     let sy = 0;
     for (const p of ring) {
@@ -43,15 +72,9 @@ export function ringCentroid(ring: Ring): Point {
     }
     return { x: sx / ring.length, y: sy / ring.length };
   }
-  let cx = 0;
-  let cy = 0;
-  for (let i = 0; i < ring.length; i++) {
-    const p0 = ring[i];
-    const p1 = ring[(i + 1) % ring.length];
-    const cross = p0.x * p1.y - p1.x * p0.y;
-    cx += (p0.x + p1.x) * cross;
-    cy += (p0.y + p1.y) * cross;
-  }
-  const denom = 6 * a;
-  return { x: cx / denom, y: cy / denom };
+  const denom = 3 * crossTotal;
+  return {
+    x: origin.x + compensatedTotal(cxSum) / denom,
+    y: origin.y + compensatedTotal(cySum) / denom,
+  };
 }

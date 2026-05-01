@@ -1,5 +1,17 @@
 import type { Point } from './types';
-import { EPS } from './types';
+import {
+  EPS_SQ,
+  clamp01,
+  cross,
+  distanceSq,
+  linePointTolerance,
+  lerpPoint,
+  orientationTolerance,
+  parameterTolerance,
+  pointOnSegment,
+  pointsAlmostEqual,
+  segmentParameter,
+} from './numeric';
 
 export type SegmentIntersectionResult =
   | { type: 'none' }
@@ -16,60 +28,113 @@ export function segmentIntersection(
   const dyA = a2.y - a1.y;
   const dxB = b2.x - b1.x;
   const dyB = b2.y - b1.y;
-  const denom = dxA * dyB - dyA * dxB;
+  const lenA2 = distanceSq(a1, a2);
+  const lenB2 = distanceSq(b1, b2);
 
-  if (Math.abs(denom) < EPS) {
-    const cross = (b1.x - a1.x) * dyA - (b1.y - a1.y) * dxA;
-    if (Math.abs(cross) > EPS) return { type: 'none' };
-    const lenA2 = dxA * dxA + dyA * dyA;
-    if (lenA2 < EPS) return { type: 'none' };
-    const tB1 = ((b1.x - a1.x) * dxA + (b1.y - a1.y) * dyA) / lenA2;
-    const tB2 = ((b2.x - a1.x) * dxA + (b2.y - a1.y) * dyA) / lenA2;
+  if (lenA2 <= EPS_SQ && lenB2 <= EPS_SQ) {
+    return pointsAlmostEqual(a1, b1)
+      ? { type: 'point', point: a1, tA: 0, tB: 0 }
+      : { type: 'none' };
+  }
+
+  if (lenA2 <= EPS_SQ) {
+    if (!pointOnSegment(a1, b1, b2)) return { type: 'none' };
+    return {
+      type: 'point',
+      point: a1,
+      tA: 0,
+      tB: clamp01(segmentParameter(a1, b1, b2)),
+    };
+  }
+
+  if (lenB2 <= EPS_SQ) {
+    if (!pointOnSegment(b1, a1, a2)) return { type: 'none' };
+    return {
+      type: 'point',
+      point: b1,
+      tA: clamp01(segmentParameter(b1, a1, a2)),
+      tB: 0,
+    };
+  }
+
+  const lenA = Math.sqrt(lenA2);
+  const lenB = Math.sqrt(lenB2);
+  const denom = cross(dxA, dyA, dxB, dyB);
+  const denomTol = orientationTolerance(dxA, dyA, dxB, dyB);
+
+  if (Math.abs(denom) <= denomTol) {
+    const b1x = b1.x - a1.x;
+    const b1y = b1.y - a1.y;
+    const b2x = b2.x - a1.x;
+    const b2y = b2.y - a1.y;
+    const lineTol = linePointTolerance(dxA, dyA);
+    if (
+      Math.abs(cross(b1x, b1y, dxA, dyA)) > lineTol ||
+      Math.abs(cross(b2x, b2y, dxA, dyA)) > lineTol
+    ) {
+      return { type: 'none' };
+    }
+
+    const tB1 = segmentParameter(b1, a1, a2);
+    const tB2 = segmentParameter(b2, a1, a2);
     const t0 = Math.max(0, Math.min(tB1, tB2));
     const t1 = Math.min(1, Math.max(tB1, tB2));
-    if (t0 > t1 + EPS) return { type: 'none' };
-    if (Math.abs(t0 - t1) < EPS) {
+    const tEps = parameterTolerance(lenA);
+    if (t0 > t1 + tEps) return { type: 'none' };
+    if (Math.abs(t0 - t1) <= tEps) {
+      const t = clamp01((t0 + t1) / 2);
+      const point = lerpPoint(a1, a2, t);
       return {
         type: 'point',
-        point: { x: a1.x + t0 * dxA, y: a1.y + t0 * dyA },
-        tA: t0,
-        tB: tB1 <= tB2 ? 0 : 1,
+        point,
+        tA: t,
+        tB: clamp01(segmentParameter(point, b1, b2)),
       };
     }
+    const start = clamp01(t0);
+    const end = clamp01(t1);
     return {
       type: 'overlap',
       points: [
-        { x: a1.x + t0 * dxA, y: a1.y + t0 * dyA },
-        { x: a1.x + t1 * dxA, y: a1.y + t1 * dyA },
+        lerpPoint(a1, a2, start),
+        lerpPoint(a1, a2, end),
       ],
     };
   }
 
-  const tA = ((b1.x - a1.x) * dyB - (b1.y - a1.y) * dxB) / denom;
-  const tB = ((b1.x - a1.x) * dyA - (b1.y - a1.y) * dxA) / denom;
+  const qx = b1.x - a1.x;
+  const qy = b1.y - a1.y;
+  const tA = cross(qx, qy, dxB, dyB) / denom;
+  const tB = cross(qx, qy, dxA, dyA) / denom;
+  const tAEps = parameterTolerance(lenA);
+  const tBEps = parameterTolerance(lenB);
 
-  if (tA < -EPS || tA > 1 + EPS || tB < -EPS || tB > 1 + EPS) {
+  if (tA < -tAEps || tA > 1 + tAEps || tB < -tBEps || tB > 1 + tBEps) {
     return { type: 'none' };
   }
-  const tAc = Math.max(0, Math.min(1, tA));
+  const tAc = clamp01(tA);
   return {
     type: 'point',
-    point: { x: a1.x + tAc * dxA, y: a1.y + tAc * dyA },
+    point: lerpPoint(a1, a2, tAc),
     tA: tAc,
-    tB: Math.max(0, Math.min(1, tB)),
+    tB: clamp01(tB),
   };
 }
 
 export function pointInRing(point: Point, ring: Point[]): boolean {
+  if (ring.length < 3) return false;
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const xi = ring[i].x;
     const yi = ring[i].y;
     const xj = ring[j].x;
     const yj = ring[j].y;
+    if (pointOnSegment(point, ring[j], ring[i])) return true;
+    const straddlesY = (yi > point.y) !== (yj > point.y);
+    // When the edge straddles point.y, yj - yi is non-zero.
     const intersect =
-      yi > point.y !== yj > point.y &&
-      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + 1e-30) + xi;
+      straddlesY &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
     if (intersect) inside = !inside;
   }
   return inside;

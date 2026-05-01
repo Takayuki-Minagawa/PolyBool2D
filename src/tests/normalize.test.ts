@@ -31,6 +31,16 @@ describe('normalize', () => {
     expect(normalizeRing(colinear)).toBeNull();
   });
 
+  it('keeps small measurable rings instead of applying a fixed area cutoff', () => {
+    const ring = [
+      { x: 0, y: 0 },
+      { x: 0.0005, y: 0 },
+      { x: 0.0005, y: 0.0005 },
+      { x: 0, y: 0.0005 },
+    ];
+    expect(normalizeRing(ring)).not.toBeNull();
+  });
+
   it('orients outer CCW and holes CW', () => {
     const cw = [
       { x: 0, y: 0 },

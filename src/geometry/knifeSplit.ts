@@ -3,6 +3,11 @@ import { segmentIntersection } from './intersections';
 import { normalizePolygon } from './normalize';
 import type { Point, PolygonGeometry, Ring } from './types';
 import { EPS } from './types';
+import {
+  pointsAlmostEqual,
+  ringAreaTolerance,
+  ringCoordinateTolerance,
+} from './numeric';
 
 export type KnifeSplitResult =
   | { ok: true; polygons: PolygonGeometry[] }
@@ -25,6 +30,7 @@ export function knifeSplitPolygon(
   const ring = poly.outer;
   const n = ring.length;
   const intersections: EdgeIntersection[] = [];
+  const pointMergeTolerance = ringCoordinateTolerance(ring);
 
   for (let i = 0; i < n; i++) {
     const a = ring[i];
@@ -49,8 +55,7 @@ export function knifeSplitPolygon(
   const dedup: EdgeIntersection[] = [];
   for (const it of intersections) {
     const dup = dedup.find(
-      (d) => Math.abs(d.point.x - it.point.x) < 1e-6 &&
-        Math.abs(d.point.y - it.point.y) < 1e-6,
+      (d) => pointsAlmostEqual(d.point, it.point, pointMergeTolerance),
     );
     if (!dup) dedup.push(it);
   }
@@ -105,8 +110,8 @@ export function knifeSplitPolygon(
   const n1 = normalizePolygon(poly1);
   const n2 = normalizePolygon(poly2);
   const out: PolygonGeometry[] = [];
-  if (n1 && polygonArea(n1) > EPS * 1000) out.push(n1);
-  if (n2 && polygonArea(n2) > EPS * 1000) out.push(n2);
+  if (n1 && polygonArea(n1) > ringAreaTolerance(n1.outer)) out.push(n1);
+  if (n2 && polygonArea(n2) > ringAreaTolerance(n2.outer)) out.push(n2);
   if (out.length < 2) return { ok: false, reason: 'not-two-intersections' };
   return { ok: true, polygons: out };
 }

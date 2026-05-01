@@ -7,6 +7,7 @@ import type {
   Ring,
 } from './types';
 import { EPS } from './types';
+import { ringAreaTolerance } from './numeric';
 
 export function ringHasSelfIntersection(ring: Ring): boolean {
   const n = ring.length;
@@ -52,10 +53,11 @@ export function validatePolygon(poly: PolygonGeometry): GeometryValidationResult
       }
     }
   }
-  if (Math.abs(signedRingArea(poly.outer)) < EPS * 1000) {
+  const outerAreaTolerance = ringAreaTolerance(poly.outer);
+  if (Math.abs(signedRingArea(poly.outer)) < outerAreaTolerance) {
     issues.push('zero-area');
   }
-  if (polygonArea(poly) < EPS * 1000) {
+  if (polygonArea(poly) < outerAreaTolerance) {
     if (!issues.includes('zero-area')) issues.push('zero-area');
   }
   return { valid: issues.length === 0, issues };

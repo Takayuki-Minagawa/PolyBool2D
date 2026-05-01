@@ -9,6 +9,15 @@ describe('Shoelace area', () => {
     expect(area / 1_000_000).toBeCloseTo(1, 6);
   });
 
+  it('keeps area accurate for large translated coordinates', () => {
+    const base = 1_000_000_000_000;
+    const ring = rectangleToRing(
+      { x: base, y: base },
+      { x: base + 1000, y: base + 1000 },
+    );
+    expect(Math.abs(signedRingArea(ring))).toBeCloseTo(1_000_000, 6);
+  });
+
   it('computes 1m² for a 2000mm × 500mm rectangle', () => {
     const ring = rectangleToRing({ x: 0, y: 0 }, { x: 2000, y: 500 });
     const area = Math.abs(signedRingArea(ring));
