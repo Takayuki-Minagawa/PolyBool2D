@@ -71,6 +71,8 @@ export function PropertyPanel() {
   const updateEntityGeometry = useAppStore((s) => s.updateEntityGeometry);
   const removeEntities = useAppStore((s) => s.removeEntities);
   const unionSelected = useAppStore((s) => s.unionSelected);
+  const intersectSelected = useAppStore((s) => s.intersectSelected);
+  const xorSelected = useAppStore((s) => s.xorSelected);
   const differenceSelected = useAppStore((s) => s.differenceSelected);
 
   const decimals = project.settings.areaPrecision;
@@ -109,6 +111,16 @@ export function PropertyPanel() {
       0,
     );
     const net = polygonArea(ent.geometry);
+
+    const commitOuterVertex = (index: number, axis: 'x' | 'y', v: number) => {
+      const outer = ent.geometry.outer.map((pp, idx) =>
+        idx === index ? { ...pp, [axis]: v } : pp,
+      );
+      const next = defaultEngine.normalize([
+        { outer, holes: ent.geometry.holes },
+      ])[0];
+      if (next) updateEntityGeometry(ent.id, next);
+    };
 
     return (
       <aside className="panel">
@@ -164,30 +176,14 @@ export function PropertyPanel() {
                     <VertexInput
                       value={p.x}
                       decimals={coordDecimals}
-                      onCommit={(v) => {
-                        const outer = ent.geometry.outer.map((pp, idx) =>
-                          idx === i ? { x: v, y: pp.y } : pp,
-                        );
-                        const next = defaultEngine.normalize([
-                          { outer, holes: ent.geometry.holes },
-                        ])[0];
-                        if (next) updateEntityGeometry(ent.id, next);
-                      }}
+                      onCommit={(v) => commitOuterVertex(i, 'x', v)}
                     />
                   </td>
                   <td>
                     <VertexInput
                       value={p.y}
                       decimals={coordDecimals}
-                      onCommit={(v) => {
-                        const outer = ent.geometry.outer.map((pp, idx) =>
-                          idx === i ? { x: pp.x, y: v } : pp,
-                        );
-                        const next = defaultEngine.normalize([
-                          { outer, holes: ent.geometry.holes },
-                        ])[0];
-                        if (next) updateEntityGeometry(ent.id, next);
-                      }}
+                      onCommit={(v) => commitOuterVertex(i, 'y', v)}
                     />
                   </td>
                 </tr>
@@ -228,6 +224,8 @@ export function PropertyPanel() {
           <small style={{ color: 'var(--fg-muted)' }}>
             {t('panel.differenceHint')}
           </small>
+          <button onClick={() => intersectSelected()}>{t('panel.intersectAction')}</button>
+          <button onClick={() => xorSelected()}>{t('panel.xorAction')}</button>
           <button onClick={() => removeEntities(selectedIds)}>
             {t('panel.delete')}
           </button>

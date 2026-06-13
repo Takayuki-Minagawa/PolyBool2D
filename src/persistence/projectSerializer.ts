@@ -107,7 +107,7 @@ function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
       }
     : { ...DEFAULT_STYLE };
   const ALLOWED_SHAPES = ['polygon', 'rectangle', 'circle', 'boolean-result', 'knife-result'] as const;
-  const ALLOWED_OPS = ['draw', 'union', 'difference', 'knife'] as const;
+  const ALLOWED_OPS = ['draw', 'union', 'difference', 'intersection', 'xor', 'knife'] as const;
   type Shape = (typeof ALLOWED_SHAPES)[number];
   type Op = (typeof ALLOWED_OPS)[number];
   const metadata = isObject(v.metadata)

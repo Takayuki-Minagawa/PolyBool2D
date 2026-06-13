@@ -20,8 +20,11 @@ export function Toolbar() {
   const toggleGrid = useAppStore((s) => s.toggleGrid);
   const toggleSnap = useAppStore((s) => s.toggleSnap);
   const unionSelected = useAppStore((s) => s.unionSelected);
+  const intersectSelected = useAppStore((s) => s.intersectSelected);
+  const xorSelected = useAppStore((s) => s.xorSelected);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
   const differenceSelected = useAppStore((s) => s.differenceSelected);
+  const duplicateSelected = useAppStore((s) => s.duplicateSelected);
   const removeEntities = useAppStore((s) => s.removeEntities);
   const selectAll = useAppStore((s) => s.selectAll);
   const selectableCount = useAppStore(
@@ -62,6 +65,20 @@ export function Toolbar() {
         >
           {t('toolbar.difference')}
         </button>
+        <button
+          onClick={() => intersectSelected()}
+          disabled={selectedIds.length < 2}
+          title={t('toolbar.intersect')}
+        >
+          {t('toolbar.intersect')}
+        </button>
+        <button
+          onClick={() => xorSelected()}
+          disabled={selectedIds.length < 2}
+          title={t('toolbar.xor')}
+        >
+          {t('toolbar.xor')}
+        </button>
       </div>
 
       <div className="toolbar-section">
@@ -86,6 +103,13 @@ export function Toolbar() {
           title="Ctrl/⌘+A"
         >
           {t('toolbar.selectAll')}
+        </button>
+        <button
+          onClick={() => duplicateSelected()}
+          disabled={selectedIds.length === 0}
+          title="Ctrl/⌘+D"
+        >
+          {t('toolbar.duplicate')}
         </button>
         <button
           onClick={() => removeEntities(selectedIds)}
