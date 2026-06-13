@@ -29,6 +29,8 @@ Draw, edit, perform boolean operations, and split polygons with a knife to compu
 | `Esc` | Cancel |
 | `Delete` / `Backspace` | Delete selection |
 | `Ctrl/⌘ + A` | Select all |
+| `Ctrl/⌘ + D` | Duplicate selection |
+| `Arrow keys` | Nudge selection by one grid cell (`Shift` = 1/10) |
 | `Ctrl/⌘ + Z` | Undo |
 | `Ctrl/⌘ + Shift + Z` / `Ctrl/⌘ + Y` | Redo |
 | `F` | Fit selection or all content |
@@ -60,6 +62,8 @@ Draw, edit, perform boolean operations, and split polygons with a knife to compu
 Select a polygon to reveal vertex handles:
 
 - Drag handles to move vertices
+- Drag the shape body to move the whole shape (multi-selection moves together)
+- Nudge the selection with the arrow keys (`Shift` for fine steps)
 - Type outer-ring X/Y values in the property panel's coordinate table
 - Vertex insertion and per-vertex deletion are not implemented yet
 
@@ -76,6 +80,12 @@ Select 2+ polygons → click **Union**. Overlaps are merged.
 3. Click **Difference**.
 
 Example: select a rectangle, `Shift`-click a circle → **Difference** carves a circular hole.
+
+### Intersection
+Select 2+ polygons → click **Intersect**. Only the overlapping region remains.
+
+### XOR
+Select 2+ polygons → click **XOR**. Only the non-overlapping regions remain.
 
 ---
 

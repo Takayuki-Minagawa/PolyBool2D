@@ -19,6 +19,8 @@ export function App() {
   const undo = useAppStore((s) => s.undo);
   const redo = useAppStore((s) => s.redo);
   const removeEntities = useAppStore((s) => s.removeEntities);
+  const duplicateSelected = useAppStore((s) => s.duplicateSelected);
+  const translateEntities = useAppStore((s) => s.translateEntities);
   const selectAll = useAppStore((s) => s.selectAll);
   const toggleGrid = useAppStore((s) => s.toggleGrid);
   const toggleSnap = useAppStore((s) => s.toggleSnap);
@@ -73,6 +75,25 @@ export function App() {
         selectAll();
         return;
       }
+      if (cmd && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        duplicateSelected();
+        return;
+      }
+      if (!cmd && !e.altKey && e.key.startsWith('Arrow')) {
+        const sel = useAppStore.getState().selectedEntityIds;
+        if (sel.length === 0) return;
+        e.preventDefault();
+        const state = useAppStore.getState();
+        // Arrow = one grid cell; Shift+Arrow = fine step (1/10 cell).
+        const step = e.shiftKey
+          ? state.project.settings.gridSize / 10
+          : state.project.settings.gridSize;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowDown' ? -step : e.key === 'ArrowUp' ? step : 0;
+        translateEntities(sel, dx, dy);
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const sel = useAppStore.getState().selectedEntityIds;
         if (sel.length > 0) {
@@ -110,7 +131,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setActiveTool, undo, redo, removeEntities, selectAll, toggleGrid, toggleSnap]);
+  }, [setActiveTool, undo, redo, removeEntities, duplicateSelected, translateEntities, selectAll, toggleGrid, toggleSnap]);
 
   return (
     <div className="app-shell">

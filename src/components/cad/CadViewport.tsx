@@ -1,25 +1,38 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
-import type { Point } from '../../geometry/types';
+import type { Point, PolygonGeometry } from '../../geometry/types';
 import type { PolygonEntity } from '../../app/projectTypes';
 import {
   boundsForEntities,
   defaultView,
   fitBoundsToView,
   screenToWorld,
+  zoomAtPoint,
 } from '../../app/transform';
-import { snapToGrid, nearestVertex, nearestEdgePoint } from '../../geometry/snap';
+import { snapWorldPoint } from '../../app/snapping';
+import { translatePolygon } from '../../geometry/translate';
 import { Grid } from './Grid';
 import { PolygonShape } from './PolygonShape';
 import { VertexHandles } from './VertexHandles';
 import { ToolPreview } from './ToolPreview';
+import { useElementSize } from './useElementSize';
+
+const ZOOM_BUTTON_FACTOR = 1.25;
+const MOVE_THRESHOLD_PX = 3;
+
+type MoveDrag = {
+  startWorld: Point;
+  ids: string[];
+  originals: Map<string, PolygonGeometry>;
+  moved: boolean;
+};
 
 export function CadViewport() {
   const { t } = useTranslation();
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [size, setSize] = useState({ width: 800, height: 600 });
+  const size = useElementSize(wrapRef);
 
   const project = useAppStore((s) => s.project);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
@@ -48,6 +61,8 @@ export function CadViewport() {
     holeIndex?: number;
     vertexIndex: number;
   } | null>(null);
+  const moveDragRef = useRef<MoveDrag | null>(null);
+  const pendingSelectRef = useRef<string | null>(null);
   const rectStartRef = useRef<Point | null>(null);
   const circleStartRef = useRef<Point | null>(null);
   const knifeStartRef = useRef<Point | null>(null);
@@ -67,79 +82,34 @@ export function CadViewport() {
     );
   }, [project.entities, selectedIds, setView, size.height, size.width]);
 
-  useLayoutEffect(() => {
-    if (!wrapRef.current) return;
-    const el = wrapRef.current;
-    const observer = new ResizeObserver(() => {
-      const rect = el.getBoundingClientRect();
-      setSize({ width: rect.width, height: rect.height });
-    });
-    observer.observe(el);
-    const rect = el.getBoundingClientRect();
-    setSize({ width: rect.width, height: rect.height });
-    return () => observer.disconnect();
-  }, []);
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const center = { x: size.width / 2, y: size.height / 2 };
+      setView((prev) => zoomAtPoint(prev, center, factor));
+    },
+    [setView, size.height, size.width],
+  );
 
-  function getMousePoint(e: React.PointerEvent | React.WheelEvent): { x: number; y: number } {
+  function getMousePoint(e: React.PointerEvent | React.WheelEvent): Point {
     const rect = svgRef.current!.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
   function getWorldPoint(screen: Point): Point {
     const w = screenToWorld(screen, view);
-    if (!snapEnabled) return w;
-    const gridSize = project.settings.gridSize;
-    const tolWorld = project.settings.snapTolerancePx / view.scale;
-
-    const allVertices: Point[] = [];
-    const allSegments: { a: Point; b: Point }[] = [];
-    for (const e of project.entities) {
-      if (e.type !== 'polygon') continue;
-      const rings = [e.geometry.outer, ...e.geometry.holes];
-      for (const ring of rings) {
-        for (let i = 0; i < ring.length; i++) {
-          allVertices.push(ring[i]);
-          allSegments.push({ a: ring[i], b: ring[(i + 1) % ring.length] });
-        }
-      }
-    }
-
-    if (project.settings.snapToVertex) {
-      const v = nearestVertex(w, allVertices);
-      if (v && v.distance < tolWorld) return v.point;
-    }
-    if (project.settings.snapToEdge) {
-      const e = nearestEdgePoint(w, allSegments);
-      if (e) {
-        if (e.midpointDistance < tolWorld) return e.midpoint;
-        if (e.distance < tolWorld / 2) return e.point;
-      }
-    }
-    if (project.settings.snapToGrid) {
-      const g = snapToGrid(w, gridSize);
-      const dx = g.x - w.x;
-      const dy = g.y - w.y;
-      if (Math.sqrt(dx * dx + dy * dy) * view.scale < project.settings.snapTolerancePx) {
-        return g;
-      }
-    }
-    return w;
+    return snapEnabled ? snapWorldPoint(w, project, view) : w;
   }
 
   // Wheel zoom (mouse-centered)
   function onWheel(e: React.WheelEvent<SVGSVGElement>) {
     e.preventDefault();
-    const screen = getMousePoint(e);
-    const world = screenToWorld(screen, view);
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    const newScale = Math.max(0.0001, Math.min(1000, view.scale * factor));
-    const newOffsetX = screen.x - world.x * newScale;
-    const newOffsetY = screen.y + world.y * newScale;
-    setView({ scale: newScale, offsetX: newOffsetX, offsetY: newOffsetY });
+    setView((prev) =>
+      zoomAtPoint(prev, getMousePoint(e), Math.exp(-e.deltaY * 0.0015)),
+    );
   }
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
-    if (e.button === 1 || (tool === 'pan') || spaceKeyRef.current) {
+    if (e.button === 1 || tool === 'pan' || spaceKeyRef.current) {
       isPanningRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -214,6 +184,30 @@ export function CadViewport() {
       });
       return;
     }
+    if (moveDragRef.current) {
+      const drag = moveDragRef.current;
+      const raw = screenToWorld(screen, view);
+      const dx = raw.x - drag.startWorld.x;
+      const dy = raw.y - drag.startWorld.y;
+      if (!drag.moved) {
+        if (Math.sqrt(dx * dx + dy * dy) * view.scale < MOVE_THRESHOLD_PX) return;
+        useAppStore.getState().pushHistory();
+        drag.moved = true;
+      }
+      // Direct set without history push during drag
+      useAppStore.setState((s) => ({
+        project: {
+          ...s.project,
+          entities: s.project.entities.map((x) => {
+            const original = x.type === 'polygon' ? drag.originals.get(x.id) : undefined;
+            return original
+              ? { ...x, geometry: translatePolygon(original, dx, dy) }
+              : x;
+          }),
+        },
+      }));
+      return;
+    }
     if (draggingVertexRef.current) {
       const drag = draggingVertexRef.current;
       const ent = project.entities.find(
@@ -265,10 +259,27 @@ export function CadViewport() {
     }
   }
 
+  function onPointerCancel() {
+    isPanningRef.current = null;
+    moveDragRef.current = null;
+    pendingSelectRef.current = null;
+    draggingVertexRef.current = null;
+  }
+
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
     if (isPanningRef.current) {
       isPanningRef.current = null;
       (e.target as Element).releasePointerCapture?.(e.pointerId);
+      return;
+    }
+    if (moveDragRef.current) {
+      const drag = moveDragRef.current;
+      moveDragRef.current = null;
+      // A plain click on an already-selected shape narrows the selection to it.
+      if (!drag.moved && pendingSelectRef.current) {
+        selectEntity(pendingSelectRef.current, false);
+      }
+      pendingSelectRef.current = null;
       return;
     }
     if (draggingVertexRef.current) {
@@ -324,7 +335,34 @@ export function CadViewport() {
   }
 
   function onShapePointerDown(entityId: string, e: React.PointerEvent) {
-    if (tool === 'select' || tool === 'vertex-edit') {
+    if (tool === 'select') {
+      // Let middle-button and space+drag fall through to the svg pan handler.
+      if (e.button !== 0 || spaceKeyRef.current) return;
+      e.stopPropagation();
+      if (e.shiftKey) {
+        selectEntity(entityId, true);
+        return;
+      }
+      const state = useAppStore.getState();
+      const alreadySelected = state.selectedEntityIds.includes(entityId);
+      const ids = alreadySelected ? state.selectedEntityIds : [entityId];
+      if (!alreadySelected) selectEntity(entityId, false);
+      pendingSelectRef.current = alreadySelected ? entityId : null;
+
+      const originals = new Map<string, PolygonGeometry>();
+      for (const ent of state.project.entities) {
+        if (ent.type === 'polygon' && ids.includes(ent.id)) {
+          originals.set(ent.id, ent.geometry);
+        }
+      }
+      moveDragRef.current = {
+        startWorld: screenToWorld(getMousePoint(e), view),
+        ids,
+        originals,
+        moved: false,
+      };
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    } else if (tool === 'vertex-edit') {
       e.stopPropagation();
       selectEntity(entityId, e.shiftKey);
     } else if (tool === 'knife') {
@@ -403,6 +441,7 @@ export function CadViewport() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onWheel={onWheel}
         style={{
           touchAction: 'none',
@@ -447,6 +486,12 @@ export function CadViewport() {
         />
       </svg>
       <div className="viewport-controls">
+        <button onClick={() => zoomBy(1 / ZOOM_BUTTON_FACTOR)} title={t('toolbar.zoomOut')}>
+          −
+        </button>
+        <button onClick={() => zoomBy(ZOOM_BUTTON_FACTOR)} title={t('toolbar.zoomIn')}>
+          +
+        </button>
         <button onClick={fitViewToContent} title={`${t('toolbar.fit')} (F)`}>
           {t('toolbar.fit')}
         </button>

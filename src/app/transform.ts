@@ -30,6 +30,24 @@ export function defaultView(width: number, height: number): ViewTransform {
   };
 }
 
+export const MIN_SCALE = 0.0001;
+export const MAX_SCALE = 1000;
+
+/** Zoom by `factor` keeping the world point under `screen` fixed. */
+export function zoomAtPoint(
+  view: ViewTransform,
+  screen: Point,
+  factor: number,
+): ViewTransform {
+  const world = screenToWorld(screen, view);
+  const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * factor));
+  return {
+    scale,
+    offsetX: screen.x - world.x * scale,
+    offsetY: screen.y + world.y * scale,
+  };
+}
+
 function expandBounds(bounds: Bounds | null, point: Point): Bounds {
   if (!bounds) {
     return {

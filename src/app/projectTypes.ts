@@ -40,7 +40,7 @@ export type PolygonEntity = {
   visible: boolean;
   metadata?: {
     sourceShape?: 'polygon' | 'rectangle' | 'circle' | 'boolean-result' | 'knife-result';
-    createdByOperation?: 'draw' | 'union' | 'difference' | 'knife';
+    createdByOperation?: 'draw' | 'union' | 'difference' | 'intersection' | 'xor' | 'knife';
   };
 };
 
