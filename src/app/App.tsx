@@ -80,7 +80,7 @@ export function App() {
         duplicateSelected();
         return;
       }
-      if (e.key.startsWith('Arrow')) {
+      if (!cmd && !e.altKey && e.key.startsWith('Arrow')) {
         const sel = useAppStore.getState().selectedEntityIds;
         if (sel.length === 0) return;
         e.preventDefault();

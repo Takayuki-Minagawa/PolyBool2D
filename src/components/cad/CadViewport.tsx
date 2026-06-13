@@ -259,6 +259,13 @@ export function CadViewport() {
     }
   }
 
+  function onPointerCancel() {
+    isPanningRef.current = null;
+    moveDragRef.current = null;
+    pendingSelectRef.current = null;
+    draggingVertexRef.current = null;
+  }
+
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
     if (isPanningRef.current) {
       isPanningRef.current = null;
@@ -329,6 +336,8 @@ export function CadViewport() {
 
   function onShapePointerDown(entityId: string, e: React.PointerEvent) {
     if (tool === 'select') {
+      // Let middle-button and space+drag fall through to the svg pan handler.
+      if (e.button !== 0 || spaceKeyRef.current) return;
       e.stopPropagation();
       if (e.shiftKey) {
         selectEntity(entityId, true);
@@ -432,6 +441,7 @@ export function CadViewport() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onWheel={onWheel}
         style={{
           touchAction: 'none',
