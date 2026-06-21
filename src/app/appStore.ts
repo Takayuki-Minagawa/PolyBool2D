@@ -619,6 +619,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           settings: { ...s.project.settings, ...partial },
           updatedAt: new Date().toISOString(),
         },
+        // Settings changes branch the timeline; drop any pending redo so a
+        // later redo cannot revert this change onto a stale project snapshot.
+        history: { ...s.history, future: [] },
       })),
 
     insertVertex: (ref, point) => {

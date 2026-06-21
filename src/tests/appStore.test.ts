@@ -251,6 +251,24 @@ describe('appStore align & distribute', () => {
   });
 });
 
+describe('appStore updateSettings', () => {
+  it('clears the redo future so redo cannot revert the settings change', () => {
+    const [first] = seedRectangles();
+    // Create an undoable action, then undo to populate history.future.
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().translateEntities([first.id], 5, 0);
+    useAppStore.getState().undo();
+    expect(useAppStore.getState().history.future.length).toBe(1);
+
+    useAppStore.getState().updateSettings({ areaDisplayUnit: 'cm2' });
+    expect(useAppStore.getState().history.future).toHaveLength(0);
+
+    // Redo is now a no-op and must not clobber the new setting.
+    useAppStore.getState().redo();
+    expect(useAppStore.getState().project.settings.areaDisplayUnit).toBe('cm2');
+  });
+});
+
 describe('appStore vertex editing', () => {
   it('inserts a vertex into the outer ring', () => {
     const [first] = seedRectangles();

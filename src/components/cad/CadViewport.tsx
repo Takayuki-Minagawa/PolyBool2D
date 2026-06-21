@@ -395,7 +395,10 @@ export function CadViewport() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
-      const isTyping = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA';
+      const isTyping =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT';
       if (e.key === 'Shift') shiftKeyRef.current = true;
       if (!isTyping && e.key === ' ') spaceKeyRef.current = true;
       if (
