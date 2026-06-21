@@ -83,6 +83,9 @@ function parseSettings(v: unknown): ProjectSettings {
   if (isFiniteNumber(v.circleSegments) && v.circleSegments >= 8) {
     s.circleSegments = clamp(Math.floor(v.circleSegments), 8, MAX_CIRCLE_SEGMENTS);
   }
+  if (v.areaDisplayUnit === 'mm2' || v.areaDisplayUnit === 'cm2' || v.areaDisplayUnit === 'm2') {
+    s.areaDisplayUnit = v.areaDisplayUnit;
+  }
   return s;
 }
 

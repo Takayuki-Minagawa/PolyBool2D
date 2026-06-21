@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { useAppStore } from '../app/appStore';
 import { createPolygonEntity } from '../app/projectFactory';
 import { rectangleToRing } from '../geometry/circle';
-import { polygonArea } from '../geometry/area';
+import { polygonArea, signedRingArea } from '../geometry/area';
 import type { PolygonEntity } from '../app/projectTypes';
 
 function seedRectangles(): [PolygonEntity, PolygonEntity] {
@@ -128,5 +128,159 @@ describe('appStore translateEntities', () => {
     useAppStore.getState().undo();
 
     expect(polygons()[0].geometry.outer[0]).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('appStore transform actions', () => {
+  it('rotates the selection preserving area, undoable', () => {
+    const [first] = seedRectangles();
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().rotateSelected(Math.PI / 2);
+
+    const rotated = polygons().find((p) => p.id === first.id)!;
+    expect(polygonArea(rotated.geometry)).toBeCloseTo(100);
+    // 10x10 square stays axis-aligned after a 90° rotation but shifts position.
+    useAppStore.getState().undo();
+    expect(polygons().find((p) => p.id === first.id)!.geometry.outer).toEqual(
+      first.geometry.outer,
+    );
+  });
+
+  it('scales the selection about its centre', () => {
+    const [first] = seedRectangles();
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().scaleSelected(2, 2);
+
+    const scaled = polygons().find((p) => p.id === first.id)!;
+    expect(polygonArea(scaled.geometry)).toBeCloseTo(400);
+  });
+
+  it('rejects a zero scale factor', () => {
+    const [first] = seedRectangles();
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().scaleSelected(0, 1);
+    expect(useAppStore.getState().ui.errorMessage).toBe('errors.invalidScale');
+  });
+
+  it('mirrors the selection keeping a valid CCW outer ring', () => {
+    const [first] = seedRectangles();
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().mirrorSelected('vertical');
+
+    const mirrored = polygons().find((p) => p.id === first.id)!;
+    // Area magnitude is preserved and signed area stays positive (CCW) thanks
+    // to normalisation.
+    expect(polygonArea(mirrored.geometry)).toBeCloseTo(100);
+    expect(signedRingArea(mirrored.geometry.outer)).toBeGreaterThan(0);
+  });
+});
+
+describe('appStore convex hull & simplify', () => {
+  it('replaces the selection with its convex hull', () => {
+    const [first, second] = seedRectangles();
+    useAppStore.getState().selectMany([first.id, second.id]);
+    useAppStore.getState().convexHullSelected();
+
+    const polys = polygons();
+    expect(polys).toHaveLength(1);
+    // Hull of two overlapping 10x10 squares offset by 5 spans (0,0)-(15,15)
+    // minus two clipped corners.
+    expect(polys[0].metadata?.createdByOperation).toBe('draw');
+    expect(polygonArea(polys[0].geometry)).toBeGreaterThan(100);
+  });
+
+  it('removes redundant collinear vertices via simplify', () => {
+    useAppStore.getState().resetProject();
+    const ent = createPolygonEntity({
+      outer: [
+        { x: 0, y: 0 },
+        { x: 5, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+        { x: 0, y: 10 },
+      ],
+      holes: [],
+    });
+    useAppStore.setState((s) => ({ project: { ...s.project, entities: [ent] } }));
+    useAppStore.getState().selectMany([ent.id]);
+    useAppStore.getState().simplifySelected(0.001);
+
+    const simplified = polygons()[0];
+    expect(simplified.geometry.outer.length).toBe(4);
+    expect(polygonArea(simplified.geometry)).toBeCloseTo(100);
+  });
+});
+
+describe('appStore align & distribute', () => {
+  it('aligns selected polygons to the group left edge', () => {
+    const [first, second] = seedRectangles();
+    useAppStore.getState().selectMany([first.id, second.id]);
+    useAppStore.getState().alignSelected('left');
+
+    const polys = polygons();
+    const minXs = polys.map((p) =>
+      Math.min(...p.geometry.outer.map((pt) => pt.x)),
+    );
+    expect(minXs[0]).toBeCloseTo(minXs[1]);
+    expect(Math.min(...minXs)).toBeCloseTo(0);
+  });
+
+  it('distributes three polygons evenly along x', () => {
+    useAppStore.getState().resetProject();
+    const mk = (x: number) =>
+      createPolygonEntity({
+        outer: rectangleToRing({ x, y: 0 }, { x: x + 2, y: 2 }),
+        holes: [],
+      });
+    const a = mk(0);
+    const b = mk(3); // center 4
+    const c = mk(20); // center 21
+    useAppStore.setState((s) => ({ project: { ...s.project, entities: [a, b, c] } }));
+    useAppStore.getState().selectMany([a.id, b.id, c.id]);
+    useAppStore.getState().distributeSelected('x');
+
+    const centerOf = (id: string) => {
+      const p = polygons().find((e) => e.id === id)!;
+      const xs = p.geometry.outer.map((pt) => pt.x);
+      return (Math.min(...xs) + Math.max(...xs)) / 2;
+    };
+    // First (1) and last (21) fixed; middle should land at 11.
+    expect(centerOf(a.id)).toBeCloseTo(1);
+    expect(centerOf(c.id)).toBeCloseTo(21);
+    expect(centerOf(b.id)).toBeCloseTo(11);
+  });
+});
+
+describe('appStore vertex editing', () => {
+  it('inserts a vertex into the outer ring', () => {
+    const [first] = seedRectangles();
+    useAppStore
+      .getState()
+      .insertVertex(
+        { entityId: first.id, ringType: 'outer', vertexIndex: 0 },
+        { x: 5, y: 0 },
+      );
+    const ent = polygons().find((p) => p.id === first.id)!;
+    expect(ent.geometry.outer.length).toBe(5);
+  });
+
+  it('deletes a vertex but refuses to drop below 3', () => {
+    useAppStore.getState().resetProject();
+    const tri = createPolygonEntity({
+      outer: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 5, y: 10 },
+      ],
+      holes: [],
+    });
+    useAppStore.setState((s) => ({ project: { ...s.project, entities: [tri] } }));
+    useAppStore.getState().deleteVertex({
+      entityId: tri.id,
+      ringType: 'outer',
+      vertexIndex: 0,
+    });
+    expect(useAppStore.getState().ui.errorMessage).toBe('errors.vertexMinimum');
+    expect(polygons()[0].geometry.outer.length).toBe(3);
   });
 });

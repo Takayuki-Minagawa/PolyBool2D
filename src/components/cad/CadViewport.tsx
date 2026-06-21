@@ -51,6 +51,7 @@ export function CadViewport() {
   const clearSelection = useAppStore((s) => s.clearSelection);
   const knifeSelected = useAppStore((s) => s.knifeSelected);
   const setActiveTool = useAppStore((s) => s.setActiveTool);
+  const deleteVertex = useAppStore((s) => s.deleteVertex);
 
   const isPanningRef = useRef<{ startX: number; startY: number; offX: number; offY: number } | null>(
     null,
@@ -380,6 +381,11 @@ export function CadViewport() {
   ) {
     if (tool !== 'select' && tool !== 'vertex-edit') return;
     e.stopPropagation();
+    // Alt+click removes the vertex instead of starting a drag.
+    if (e.altKey) {
+      deleteVertex({ entityId, ringType, holeIndex, vertexIndex });
+      return;
+    }
     useAppStore.getState().pushHistory();
     draggingVertexRef.current = { entityId, ringType, holeIndex, vertexIndex };
     (e.target as Element).setPointerCapture?.(e.pointerId);

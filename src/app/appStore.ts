@@ -4,16 +4,37 @@ import { circleToRing, rectangleToRing } from '../geometry/circle';
 import { knifeSplitPolygon } from '../geometry/knifeSplit';
 import { polygonArea } from '../geometry/area';
 import { translatePolygon } from '../geometry/translate';
-import type { Point, PolygonGeometry } from '../geometry/types';
+import {
+  mirrorPolygon,
+  rotatePolygon,
+  scalePolygon,
+  type MirrorAxis,
+} from '../geometry/transform2d';
+import { convexHull } from '../geometry/convexHull';
+import { simplifyRing } from '../geometry/simplify';
+import { insertVertexInRing, deleteVertexFromRing } from '../geometry/vertexEdit';
+import { normalizePolygon } from '../geometry/normalize';
+import { polygonBBox, type BBox } from '../geometry/measure';
+import type { Point, PolygonGeometry, Ring } from '../geometry/types';
 import { createEmptyProject, createPolygonEntity } from './projectFactory';
 import type {
   Entity,
   PolygonEntity,
   Project,
+  ProjectSettings,
   ToolName,
+  VertexRef,
   ViewTransform,
 } from './projectTypes';
-import { defaultView } from './transform';
+import { boundsForEntities, defaultView } from './transform';
+
+export type AlignMode =
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'centerX'
+  | 'centerY';
 
 const HISTORY_LIMIT = 50;
 const DUPLICATE_OFFSET_FACTOR = 0.5;
@@ -65,6 +86,16 @@ export type AppState = {
   knifeSelected: (entityId: string, start: Point, end: Point) => boolean;
   duplicateSelected: () => void;
   translateEntities: (ids: string[], dx: number, dy: number, recordHistory?: boolean) => void;
+  rotateSelected: (angleRad: number) => void;
+  scaleSelected: (sx: number, sy: number) => void;
+  mirrorSelected: (axis: MirrorAxis) => void;
+  convexHullSelected: () => void;
+  simplifySelected: (tolerance: number) => void;
+  alignSelected: (mode: AlignMode) => void;
+  distributeSelected: (axis: 'x' | 'y') => void;
+  insertVertex: (ref: VertexRef, point: Point) => void;
+  deleteVertex: (ref: VertexRef) => void;
+  updateSettings: (partial: Partial<ProjectSettings>) => void;
   setTheme: (t: Theme) => void;
   setLanguage: (l: 'ja' | 'en') => void;
   setManualOpen: (v: boolean) => void;
@@ -112,6 +143,30 @@ function polygonsByIds(project: Project, ids: string[]): PolygonEntity[] {
   );
 }
 
+/** Translation needed to align `box` to the `group` bounds for the given mode. */
+function alignOffset(box: BBox, group: BBox, mode: AlignMode): { dx: number; dy: number } {
+  switch (mode) {
+    case 'left':
+      return { dx: group.minX - box.minX, dy: 0 };
+    case 'right':
+      return { dx: group.maxX - box.maxX, dy: 0 };
+    case 'top':
+      return { dx: 0, dy: group.maxY - box.maxY };
+    case 'bottom':
+      return { dx: 0, dy: group.minY - box.minY };
+    case 'centerX':
+      return {
+        dx: (group.minX + group.maxX) / 2 - (box.minX + box.maxX) / 2,
+        dy: 0,
+      };
+    case 'centerY':
+      return {
+        dx: 0,
+        dy: (group.minY + group.maxY) / 2 - (box.minY + box.maxY) / 2,
+      };
+  }
+}
+
 export const useAppStore = create<AppState>()((set, get) => {
   /** Replace `removeIds` entities with `added`, select the new ones. Records history. */
   function replaceEntities(removeIds: string[], added: PolygonEntity[]) {
@@ -149,6 +204,64 @@ export const useAppStore = create<AppState>()((set, get) => {
       }),
     );
     replaceEntities(selectedEntityIds, newEntities);
+  }
+
+  function getPolygon(id: string): PolygonEntity | undefined {
+    return get().project.entities.find(
+      (e): e is PolygonEntity => isPolygon(e) && e.id === id,
+    );
+  }
+
+  /**
+   * Apply a geometric transform to each selected polygon about the selection's
+   * bounding-box centre. The result is normalised so the winding convention
+   * (CCW outer / CW holes) is restored after mirrors and negative scales.
+   */
+  function transformSelected(
+    fn: (geom: PolygonGeometry, pivot: Point) => PolygonGeometry,
+  ) {
+    const { project, selectedEntityIds } = get();
+    const polys = polygonsByIds(project, selectedEntityIds);
+    if (polys.length === 0) return;
+    const bounds = boundsForEntities(polys);
+    if (!bounds) return;
+    const pivot = {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: (bounds.minY + bounds.maxY) / 2,
+    };
+    get().pushHistory();
+    set((s) => ({
+      project: touchProject(
+        s.project,
+        s.project.entities.map((e) => {
+          if (!isPolygon(e) || !selectedEntityIds.includes(e.id)) return e;
+          const normalized = normalizePolygon(fn(e.geometry, pivot));
+          return normalized ? { ...e, geometry: normalized } : e;
+        }),
+      ),
+    }));
+  }
+
+  /** Apply `fn` to the ring referenced by `ref`, returning the new geometry. */
+  function editRing(
+    ref: VertexRef,
+    fn: (ring: Ring) => Ring | null,
+  ): PolygonGeometry | 'too-few' | null {
+    const ent = getPolygon(ref.entityId);
+    if (!ent) return null;
+    if (ref.ringType === 'outer') {
+      const next = fn(ent.geometry.outer);
+      if (next === null) return 'too-few';
+      return { outer: next, holes: ent.geometry.holes };
+    }
+    const hi = ref.holeIndex ?? -1;
+    if (hi < 0 || hi >= ent.geometry.holes.length) return null;
+    const next = fn(ent.geometry.holes[hi]);
+    if (next === null) return 'too-few';
+    return {
+      outer: ent.geometry.outer,
+      holes: ent.geometry.holes.map((h, i) => (i === hi ? next : h)),
+    };
   }
 
   return {
@@ -364,6 +477,162 @@ export const useAppStore = create<AppState>()((set, get) => {
           ),
         ),
       }));
+    },
+
+    rotateSelected: (angleRad) =>
+      transformSelected((geom, pivot) => rotatePolygon(geom, pivot, angleRad)),
+
+    scaleSelected: (sx, sy) => {
+      if (sx === 0 || sy === 0 || !Number.isFinite(sx) || !Number.isFinite(sy)) {
+        get().setErrorMessage('errors.invalidScale');
+        return;
+      }
+      transformSelected((geom, pivot) => scalePolygon(geom, pivot, sx, sy));
+    },
+
+    mirrorSelected: (axis) =>
+      transformSelected((geom, pivot) => mirrorPolygon(geom, pivot, axis)),
+
+    convexHullSelected: () => {
+      const { project, selectedEntityIds } = get();
+      const polys = polygonsByIds(project, selectedEntityIds);
+      if (polys.length === 0) return;
+      const points: Point[] = [];
+      for (const p of polys) {
+        for (const ring of [p.geometry.outer, ...p.geometry.holes]) {
+          for (const pt of ring) points.push(pt);
+        }
+      }
+      const hull = convexHull(points);
+      if (!hull) {
+        get().setErrorMessage('errors.hullDegenerate');
+        return;
+      }
+      const created = createPolygonEntity(
+        { outer: hull, holes: [] },
+        {
+          name: 'Convex hull',
+          layerId: polys[0].layerId,
+          metadata: { sourceShape: 'polygon', createdByOperation: 'draw' },
+        },
+      );
+      replaceEntities(selectedEntityIds, [created]);
+    },
+
+    simplifySelected: (tolerance) => {
+      if (!(tolerance > 0)) return;
+      const { project, selectedEntityIds } = get();
+      const polys = polygonsByIds(project, selectedEntityIds);
+      if (polys.length === 0) return;
+      get().pushHistory();
+      set((s) => ({
+        project: touchProject(
+          s.project,
+          s.project.entities.map((e) => {
+            if (!isPolygon(e) || !selectedEntityIds.includes(e.id)) return e;
+            const simplified: PolygonGeometry = {
+              outer: simplifyRing(e.geometry.outer, tolerance),
+              holes: e.geometry.holes.map((h) => simplifyRing(h, tolerance)),
+            };
+            const normalized = normalizePolygon(simplified);
+            return normalized ? { ...e, geometry: normalized } : e;
+          }),
+        ),
+      }));
+    },
+
+    alignSelected: (mode) => {
+      const { project, selectedEntityIds } = get();
+      const polys = polygonsByIds(project, selectedEntityIds);
+      if (polys.length < 2) return;
+      const group = boundsForEntities(polys);
+      if (!group) return;
+      get().pushHistory();
+      set((s) => ({
+        project: touchProject(
+          s.project,
+          s.project.entities.map((e) => {
+            if (!isPolygon(e) || !selectedEntityIds.includes(e.id)) return e;
+            const box = polygonBBox(e.geometry);
+            if (!box) return e;
+            const { dx, dy } = alignOffset(box, group, mode);
+            return dx === 0 && dy === 0
+              ? e
+              : { ...e, geometry: translatePolygon(e.geometry, dx, dy) };
+          }),
+        ),
+      }));
+    },
+
+    distributeSelected: (axis) => {
+      const { project, selectedEntityIds } = get();
+      const polys = polygonsByIds(project, selectedEntityIds);
+      if (polys.length < 3) return;
+      const items = polys
+        .map((p) => ({ id: p.id, box: polygonBBox(p.geometry) }))
+        .filter((it): it is { id: string; box: BBox } => it.box !== null)
+        .map((it) => ({
+          id: it.id,
+          center: axis === 'x'
+            ? (it.box.minX + it.box.maxX) / 2
+            : (it.box.minY + it.box.maxY) / 2,
+        }))
+        .sort((a, b) => a.center - b.center);
+      if (items.length < 3) return;
+      const first = items[0].center;
+      const last = items[items.length - 1].center;
+      const step = (last - first) / (items.length - 1);
+      const targetById = new Map<string, number>();
+      items.forEach((it, i) => targetById.set(it.id, first + step * i));
+      get().pushHistory();
+      set((s) => ({
+        project: touchProject(
+          s.project,
+          s.project.entities.map((e) => {
+            if (!isPolygon(e)) return e;
+            const target = targetById.get(e.id);
+            if (target === undefined) return e;
+            const box = polygonBBox(e.geometry);
+            if (!box) return e;
+            const center = axis === 'x'
+              ? (box.minX + box.maxX) / 2
+              : (box.minY + box.maxY) / 2;
+            const delta = target - center;
+            if (delta === 0) return e;
+            return {
+              ...e,
+              geometry: translatePolygon(
+                e.geometry,
+                axis === 'x' ? delta : 0,
+                axis === 'y' ? delta : 0,
+              ),
+            };
+          }),
+        ),
+      }));
+    },
+
+    updateSettings: (partial) =>
+      set((s) => ({
+        project: {
+          ...s.project,
+          settings: { ...s.project.settings, ...partial },
+          updatedAt: new Date().toISOString(),
+        },
+      })),
+
+    insertVertex: (ref, point) => {
+      const geom = editRing(ref, (ring) => insertVertexInRing(ring, ref.vertexIndex, point));
+      if (geom && geom !== 'too-few') get().updateEntityGeometry(ref.entityId, geom);
+    },
+
+    deleteVertex: (ref) => {
+      const geom = editRing(ref, (ring) => deleteVertexFromRing(ring, ref.vertexIndex));
+      if (geom === 'too-few') {
+        get().setErrorMessage('errors.vertexMinimum');
+        return;
+      }
+      if (geom) get().updateEntityGeometry(ref.entityId, geom);
     },
 
     setTheme: (t) => {

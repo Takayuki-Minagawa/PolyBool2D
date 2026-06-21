@@ -2,6 +2,9 @@ import type { PolygonGeometry, Point } from '../geometry/types';
 
 export type Unit = 'mm' | 'cm' | 'm';
 
+/** Display unit for area readouts (independent of the project coordinate unit). */
+export type AreaUnit = 'mm2' | 'cm2' | 'm2';
+
 export type ProjectSettings = {
   gridSize: number;
   snapEnabled: boolean;
@@ -12,6 +15,7 @@ export type ProjectSettings = {
   areaPrecision: number;
   coordinatePrecision: number;
   circleSegments: number;
+  areaDisplayUnit: AreaUnit;
 };
 
 export type Layer = {
@@ -101,6 +105,7 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   areaPrecision: 3,
   coordinatePrecision: 3,
   circleSegments: 64,
+  areaDisplayUnit: 'm2',
 };
 
 export const DEFAULT_STYLE: EntityStyle = {

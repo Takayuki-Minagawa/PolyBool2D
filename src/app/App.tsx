@@ -118,6 +118,9 @@ export function App() {
         case 'c':
           setActiveTool('circle');
           break;
+        case 'e':
+          setActiveTool('vertex-edit');
+          break;
         case 'k':
           setActiveTool('knife');
           break;
