@@ -1,13 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import { polygonArea } from '../../geometry/area';
+import { formatArea } from '../../app/units';
 import type { PolygonEntity } from '../../app/projectTypes';
-
-const UNIT_FACTOR: Record<'mm' | 'cm' | 'm', number> = {
-  mm: 1,
-  cm: 10,
-  m: 1000,
-};
 
 export function StatusBar() {
   const { t } = useTranslation();
@@ -24,8 +19,6 @@ export function StatusBar() {
       e.type === 'polygon' && selectedIds.includes(e.id),
   );
   const selArea = selPolys.reduce((a, p) => a + polygonArea(p.geometry), 0);
-  const f = UNIT_FACTOR[project.unit];
-  const m2 = (selArea * f * f) / 1_000_000;
   const error = errorRaw ? t(errorRaw) : null;
   const guideKey = `status.guide${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
   const guide = t(guideKey, { defaultValue: '' });
@@ -45,7 +38,12 @@ export function StatusBar() {
       {selPolys.length > 0 && (
         <span>
           {t('status.selected')}:{' '}
-          {m2.toFixed(project.settings.areaPrecision)} m²
+          {formatArea(
+            selArea,
+            project.unit,
+            project.settings.areaDisplayUnit,
+            project.settings.areaPrecision,
+          )}
         </span>
       )}
       <span style={{ flex: 1 }}>{guide}</span>

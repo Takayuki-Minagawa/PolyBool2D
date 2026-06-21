@@ -55,7 +55,12 @@ export function App() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+      ) {
         return;
       }
       const cmd = e.metaKey || e.ctrlKey;
@@ -117,6 +122,9 @@ export function App() {
           break;
         case 'c':
           setActiveTool('circle');
+          break;
+        case 'e':
+          setActiveTool('vertex-edit');
           break;
         case 'k':
           setActiveTool('knife');

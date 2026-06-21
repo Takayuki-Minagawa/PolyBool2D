@@ -5,6 +5,8 @@ import {
   exportProjectFile,
   importProjectFile,
 } from '../../persistence/projectSerializer';
+import { exportSvgFile } from '../../persistence/svgExport';
+import { exportAreaCsvFile, exportVertexCsvFile } from '../../persistence/csvExport';
 
 export function Header() {
   const { t, i18n } = useTranslation();
@@ -63,6 +65,18 @@ export function Header() {
           style={{ display: 'none' }}
           onChange={onImport}
         />
+      </div>
+
+      <div className="group">
+        <button onClick={() => exportSvgFile(project)} title="SVG">
+          {t('header.exportSvg')}
+        </button>
+        <button onClick={() => exportAreaCsvFile(project)} title="CSV">
+          {t('header.exportCsvArea')}
+        </button>
+        <button onClick={() => exportVertexCsvFile(project)} title="CSV">
+          {t('header.exportCsvVertices')}
+        </button>
       </div>
 
       <div className="group">

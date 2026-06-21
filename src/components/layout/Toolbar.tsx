@@ -8,6 +8,7 @@ const TOOLS: { name: ToolName; key: string; labelKey: string }[] = [
   { name: 'polygon', key: 'P', labelKey: 'toolbar.polygon' },
   { name: 'rectangle', key: 'R', labelKey: 'toolbar.rectangle' },
   { name: 'circle', key: 'C', labelKey: 'toolbar.circle' },
+  { name: 'vertex-edit', key: 'E', labelKey: 'toolbar.vertexEdit' },
   { name: 'knife', key: 'K', labelKey: 'toolbar.knife' },
 ];
 
