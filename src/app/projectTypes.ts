@@ -7,7 +7,6 @@ export type AreaUnit = 'mm2' | 'cm2' | 'm2';
 
 export type ProjectSettings = {
   gridSize: number;
-  snapEnabled: boolean;
   snapToGrid: boolean;
   snapToVertex: boolean;
   snapToEdge: boolean;
@@ -97,7 +96,6 @@ export const APP_VERSION = '0.1.0';
 
 export const DEFAULT_SETTINGS: ProjectSettings = {
   gridSize: 100,
-  snapEnabled: true,
   snapToGrid: true,
   snapToVertex: true,
   snapToEdge: true,

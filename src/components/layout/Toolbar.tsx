@@ -8,7 +8,7 @@ export function Toolbar() {
   const tool = useAppStore((s) => s.activeTool);
   const setActiveTool = useAppStore((s) => s.setActiveTool);
   const showGrid = useAppStore((s) => s.ui.showGrid);
-  const snapEnabled = useAppStore((s) => s.project.settings.snapEnabled);
+  const snapEnabled = useAppStore((s) => s.ui.snapEnabled);
   const toggleGrid = useAppStore((s) => s.toggleGrid);
   const toggleSnap = useAppStore((s) => s.toggleSnap);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);

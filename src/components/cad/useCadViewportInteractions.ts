@@ -37,6 +37,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
   const setView = useAppStore((s) => s.setView);
   const preview = useAppStore((s) => s.preview);
   const setPreview = useAppStore((s) => s.setPreview);
+  const snapEnabled = useAppStore((s) => s.ui.snapEnabled);
   const setStatusMessage = useAppStore((s) => s.setStatusMessage);
   const addRectangle = useAppStore((s) => s.addRectangle);
   const addCircle = useAppStore((s) => s.addCircle);
@@ -95,7 +96,8 @@ export function useCadViewportInteractions(size: ViewportSize) {
   }
 
   function getWorldPoint(screen: Point): Point {
-    return snapWorldPoint(screenToWorld(screen, view), project, view);
+    const world = screenToWorld(screen, view);
+    return snapEnabled ? snapWorldPoint(world, project, view) : world;
   }
 
   function onWheel(e: ReactWheelEvent<SVGSVGElement>) {

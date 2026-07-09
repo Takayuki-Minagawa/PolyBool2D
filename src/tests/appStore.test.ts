@@ -268,11 +268,20 @@ describe('appStore updateSettings', () => {
     expect(useAppStore.getState().project.settings.areaDisplayUnit).toBe('cm2');
   });
 
-  it('toggles snap through project settings', () => {
-    useAppStore.getState().resetProject();
-    const before = useAppStore.getState().project.settings.snapEnabled;
+  it('toggles snap as UI state without clearing redo history', () => {
+    const [first] = seedRectangles();
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().translateEntities([first.id], 5, 0);
+    useAppStore.getState().undo();
+    const before = useAppStore.getState().ui.snapEnabled;
+    const updatedAt = useAppStore.getState().project.updatedAt;
+    expect(useAppStore.getState().history.future.length).toBe(1);
+
     useAppStore.getState().toggleSnap();
-    expect(useAppStore.getState().project.settings.snapEnabled).toBe(!before);
+
+    expect(useAppStore.getState().ui.snapEnabled).toBe(!before);
+    expect(useAppStore.getState().project.updatedAt).toBe(updatedAt);
+    expect(useAppStore.getState().history.future.length).toBe(1);
   });
 });
 

@@ -4,9 +4,9 @@ import {
   type Language,
   type Theme,
 } from '../preferences';
-import type { AppGet, AppSet, AppState } from './types';
+import type { AppSet, AppState } from './types';
 
-export function createUiActions(set: AppSet, get: AppGet): Pick<
+export function createUiActions(set: AppSet): Pick<
   AppState,
   | 'setTheme'
   | 'setLanguage'
@@ -32,10 +32,8 @@ export function createUiActions(set: AppSet, get: AppGet): Pick<
     toggleGrid: () =>
       set((s) => ({ ui: { ...s.ui, showGrid: !s.ui.showGrid } })),
 
-    toggleSnap: () => {
-      const enabled = !get().project.settings.snapEnabled;
-      get().updateSettings({ snapEnabled: enabled });
-    },
+    toggleSnap: () =>
+      set((s) => ({ ui: { ...s.ui, snapEnabled: !s.ui.snapEnabled } })),
 
     setStatusMessage: (m) =>
       set((s) => ({ ui: { ...s.ui, statusMessage: m } })),

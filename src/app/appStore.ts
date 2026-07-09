@@ -22,6 +22,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     language: readLanguage(),
     manualOpen: false,
     showGrid: true,
+    snapEnabled: true,
     statusMessage: null,
     errorMessage: null,
   },
@@ -29,7 +30,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   ...createHistoryActions(set),
   ...createEntityActions(set, get),
   ...createGeometryActions(set, get),
-  ...createUiActions(set, get),
+  ...createUiActions(set),
 }));
 
 export type {

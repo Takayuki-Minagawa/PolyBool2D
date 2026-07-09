@@ -104,6 +104,7 @@ export function App() {
         }
         return;
       }
+      if (cmd) return;
       const tool = toolForShortcut(e.key);
       if (tool) {
         setActiveTool(tool);

@@ -11,7 +11,7 @@ export function StatusBar() {
   const tool = useAppStore((s) => s.activeTool);
   const status = useAppStore((s) => s.ui.statusMessage);
   const errorRaw = useAppStore((s) => s.ui.errorMessage);
-  const snap = useAppStore((s) => s.project.settings.snapEnabled);
+  const snap = useAppStore((s) => s.ui.snapEnabled);
   const grid = useAppStore((s) => s.ui.showGrid);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
 

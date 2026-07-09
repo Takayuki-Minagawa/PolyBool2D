@@ -32,6 +32,7 @@ export type AppUiState = {
   language: Language;
   manualOpen: boolean;
   showGrid: boolean;
+  snapEnabled: boolean;
   statusMessage: string | null;
   errorMessage: string | null;
 };

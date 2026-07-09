@@ -67,7 +67,6 @@ function parseSettings(v: unknown): ProjectSettings {
   if (isFiniteNumber(v.gridSize) && v.gridSize > 0) {
     s.gridSize = clamp(v.gridSize, 1, MAX_GRID_SIZE);
   }
-  if (typeof v.snapEnabled === 'boolean') s.snapEnabled = v.snapEnabled;
   if (typeof v.snapToGrid === 'boolean') s.snapToGrid = v.snapToGrid;
   if (typeof v.snapToVertex === 'boolean') s.snapToVertex = v.snapToVertex;
   if (typeof v.snapToEdge === 'boolean') s.snapToEdge = v.snapToEdge;
