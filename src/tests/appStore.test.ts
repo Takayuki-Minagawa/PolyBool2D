@@ -267,6 +267,13 @@ describe('appStore updateSettings', () => {
     useAppStore.getState().redo();
     expect(useAppStore.getState().project.settings.areaDisplayUnit).toBe('cm2');
   });
+
+  it('toggles snap through project settings', () => {
+    useAppStore.getState().resetProject();
+    const before = useAppStore.getState().project.settings.snapEnabled;
+    useAppStore.getState().toggleSnap();
+    expect(useAppStore.getState().project.settings.snapEnabled).toBe(!before);
+  });
 });
 
 describe('appStore vertex editing', () => {

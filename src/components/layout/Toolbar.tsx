@@ -1,30 +1,17 @@
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
-import type { ToolName } from '../../app/projectTypes';
-
-const TOOLS: { name: ToolName; key: string; labelKey: string }[] = [
-  { name: 'select', key: 'V', labelKey: 'toolbar.select' },
-  { name: 'pan', key: 'H', labelKey: 'toolbar.pan' },
-  { name: 'polygon', key: 'P', labelKey: 'toolbar.polygon' },
-  { name: 'rectangle', key: 'R', labelKey: 'toolbar.rectangle' },
-  { name: 'circle', key: 'C', labelKey: 'toolbar.circle' },
-  { name: 'vertex-edit', key: 'E', labelKey: 'toolbar.vertexEdit' },
-  { name: 'knife', key: 'K', labelKey: 'toolbar.knife' },
-];
+import { TOOL_DEFINITIONS } from '../../app/toolRegistry';
+import { BooleanActions } from './BooleanActions';
 
 export function Toolbar() {
   const { t } = useTranslation();
   const tool = useAppStore((s) => s.activeTool);
   const setActiveTool = useAppStore((s) => s.setActiveTool);
   const showGrid = useAppStore((s) => s.ui.showGrid);
-  const snapEnabled = useAppStore((s) => s.ui.snapEnabled);
+  const snapEnabled = useAppStore((s) => s.project.settings.snapEnabled);
   const toggleGrid = useAppStore((s) => s.toggleGrid);
   const toggleSnap = useAppStore((s) => s.toggleSnap);
-  const unionSelected = useAppStore((s) => s.unionSelected);
-  const intersectSelected = useAppStore((s) => s.intersectSelected);
-  const xorSelected = useAppStore((s) => s.xorSelected);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
-  const differenceSelected = useAppStore((s) => s.differenceSelected);
   const duplicateSelected = useAppStore((s) => s.duplicateSelected);
   const removeEntities = useAppStore((s) => s.removeEntities);
   const selectAll = useAppStore((s) => s.selectAll);
@@ -35,7 +22,7 @@ export function Toolbar() {
   return (
     <aside className="toolbar">
       <div className="toolbar-section">
-        {TOOLS.map((tt) => (
+        {TOOL_DEFINITIONS.map((tt) => (
           <button
             key={tt.name}
             className={tool === tt.name ? 'active' : ''}
@@ -48,38 +35,7 @@ export function Toolbar() {
       </div>
 
       <div className="toolbar-section">
-        <button
-          onClick={() => unionSelected()}
-          disabled={selectedIds.length < 2}
-          title={t('toolbar.union')}
-        >
-          {t('toolbar.union')}
-        </button>
-        <button
-          onClick={() => {
-            if (selectedIds.length < 2) return;
-            const [subject, ...cutters] = selectedIds;
-            differenceSelected(subject, cutters);
-          }}
-          disabled={selectedIds.length < 2}
-          title={t('toolbar.difference')}
-        >
-          {t('toolbar.difference')}
-        </button>
-        <button
-          onClick={() => intersectSelected()}
-          disabled={selectedIds.length < 2}
-          title={t('toolbar.intersect')}
-        >
-          {t('toolbar.intersect')}
-        </button>
-        <button
-          onClick={() => xorSelected()}
-          disabled={selectedIds.length < 2}
-          title={t('toolbar.xor')}
-        >
-          {t('toolbar.xor')}
-        </button>
+        <BooleanActions variant="toolbar" />
       </div>
 
       <div className="toolbar-section">

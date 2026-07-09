@@ -195,6 +195,9 @@ input[type='text'] {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.vertex-actions {
+  white-space: nowrap;
+}
 .vertex-table td:last-child button {
   padding: 0 6px;
   margin-left: 2px;
@@ -208,6 +211,25 @@ input[type='text'] {
 }
 .button-grid button {
   font-size: 12px;
+}
+
+.panel-subgrid {
+  margin-top: 6px;
+}
+
+.panel-action {
+  margin-top: 8px;
+}
+
+.panel-action-stack {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.muted-text {
+  color: var(--fg-muted);
 }
 
 .status-bar {

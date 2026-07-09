@@ -13,6 +13,7 @@ export function snapWorldPoint(
   view: ViewTransform,
 ): Point {
   const { settings } = project;
+  if (!settings.snapEnabled) return world;
   const tolWorld = settings.snapTolerancePx / view.scale;
 
   const allVertices: Point[] = [];

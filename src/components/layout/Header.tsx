@@ -4,12 +4,12 @@ import { useAppStore } from '../../app/appStore';
 import {
   exportProjectFile,
   importProjectFile,
-} from '../../persistence/projectSerializer';
+} from '../../persistence/projectFileIo';
 import { exportSvgFile } from '../../persistence/svgExport';
 import { exportAreaCsvFile, exportVertexCsvFile } from '../../persistence/csvExport';
 
 export function Header() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const project = useAppStore((s) => s.project);
   const undo = useAppStore((s) => s.undo);
   const redo = useAppStore((s) => s.redo);
@@ -27,7 +27,6 @@ export function Header() {
 
   function onChangeLang(l: 'ja' | 'en') {
     setLanguage(l);
-    i18n.changeLanguage(l);
   }
 
   async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
