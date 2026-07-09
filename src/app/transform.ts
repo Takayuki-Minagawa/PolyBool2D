@@ -1,12 +1,8 @@
 import type { Point } from '../geometry/types';
+import { expandBBox, type BBox } from '../geometry/measure';
 import type { Entity, ViewTransform } from './projectTypes';
 
-export type Bounds = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-};
+export type Bounds = BBox;
 
 export function worldToScreen(p: Point, view: ViewTransform): Point {
   return {
@@ -48,38 +44,21 @@ export function zoomAtPoint(
   };
 }
 
-function expandBounds(bounds: Bounds | null, point: Point): Bounds {
-  if (!bounds) {
-    return {
-      minX: point.x,
-      minY: point.y,
-      maxX: point.x,
-      maxY: point.y,
-    };
-  }
-  return {
-    minX: Math.min(bounds.minX, point.x),
-    minY: Math.min(bounds.minY, point.y),
-    maxX: Math.max(bounds.maxX, point.x),
-    maxY: Math.max(bounds.maxY, point.y),
-  };
-}
-
 export function boundsForEntities(entities: Entity[]): Bounds | null {
   let bounds: Bounds | null = null;
   for (const entity of entities) {
     if (entity.type === 'polygon') {
       for (const point of entity.geometry.outer) {
-        bounds = expandBounds(bounds, point);
+        bounds = expandBBox(bounds, point);
       }
       for (const hole of entity.geometry.holes) {
         for (const point of hole) {
-          bounds = expandBounds(bounds, point);
+          bounds = expandBBox(bounds, point);
         }
       }
     } else if (entity.type === 'guide-line') {
       for (const point of entity.points) {
-        bounds = expandBounds(bounds, point);
+        bounds = expandBBox(bounds, point);
       }
     }
   }

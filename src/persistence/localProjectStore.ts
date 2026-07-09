@@ -1,5 +1,5 @@
 import type { Project } from '../app/projectTypes';
-import { deserializeProject, serializeProject } from './projectSerializer';
+import { deserializeProject, serializeProject } from './projectCodec';
 
 const KEY = 'pb2d.project';
 

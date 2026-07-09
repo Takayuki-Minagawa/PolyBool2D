@@ -1,5 +1,5 @@
 import { polygonArea, signedRingArea } from './area';
-import { segmentIntersection } from './intersections';
+import { pointInRing, segmentIntersection } from './intersections';
 import type {
   GeometryValidationIssue,
   GeometryValidationResult,
@@ -34,6 +34,24 @@ export function ringHasSelfIntersection(ring: Ring): boolean {
   return false;
 }
 
+function ringsIntersect(a: Ring, b: Ring): boolean {
+  if (a.length < 2 || b.length < 2) return false;
+  for (let i = 0; i < a.length; i++) {
+    const a1 = a[i];
+    const a2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const b1 = b[j];
+      const b2 = b[(j + 1) % b.length];
+      if (segmentIntersection(a1, a2, b1, b2).type !== 'none') return true;
+    }
+  }
+  return false;
+}
+
+function pushIssueOnce(issues: GeometryValidationIssue[], issue: GeometryValidationIssue): void {
+  if (!issues.includes(issue)) issues.push(issue);
+}
+
 export function validatePolygon(poly: PolygonGeometry): GeometryValidationResult {
   const issues: GeometryValidationIssue[] = [];
   if (poly.outer.length < 3) issues.push('outer-too-few-points');
@@ -52,6 +70,28 @@ export function validatePolygon(poly: PolygonGeometry): GeometryValidationResult
         break;
       }
     }
+  }
+  if (poly.outer.length >= 3) {
+    for (const h of poly.holes) {
+      if (h.length < 3) continue;
+      if (!pointInRing(h[0], poly.outer) || ringsIntersect(h, poly.outer)) {
+        pushIssueOnce(issues, 'hole-outside-outer');
+        break;
+      }
+    }
+  }
+  for (let i = 0; i < poly.holes.length; i++) {
+    const a = poly.holes[i];
+    if (a.length < 3) continue;
+    for (let j = i + 1; j < poly.holes.length; j++) {
+      const b = poly.holes[j];
+      if (b.length < 3) continue;
+      if (ringsIntersect(a, b) || pointInRing(a[0], b) || pointInRing(b[0], a)) {
+        pushIssueOnce(issues, 'hole-overlap');
+        break;
+      }
+    }
+    if (issues.includes('hole-overlap')) break;
   }
   const outerAreaTolerance = ringAreaTolerance(poly.outer);
   if (Math.abs(signedRingArea(poly.outer)) < outerAreaTolerance) {

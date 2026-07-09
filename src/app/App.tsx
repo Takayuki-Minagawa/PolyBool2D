@@ -7,6 +7,9 @@ import { StatusBar } from '../components/layout/StatusBar';
 import { ManualModal } from '../components/layout/ManualModal';
 import { CadViewport } from '../components/cad/CadViewport';
 import { useAppStore } from './appStore';
+import { isEditableTarget } from './domGuards';
+import { applyDocumentLanguage, applyDocumentTheme } from './preferences';
+import { toolForShortcut } from './toolRegistry';
 import { loadProjectFromLocal, saveProjectToLocal } from '../persistence/localProjectStore';
 
 export function App() {
@@ -27,7 +30,7 @@ export function App() {
 
   // Apply theme attribute on mount
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
+    applyDocumentTheme(theme);
   }, [theme]);
 
   // Sync i18n language
@@ -35,7 +38,7 @@ export function App() {
     if (i18n.language !== language) {
       i18n.changeLanguage(language);
     }
-    document.documentElement.setAttribute('lang', language);
+    applyDocumentLanguage(language);
   }, [language, i18n]);
 
   // Load project from localStorage on mount
@@ -54,13 +57,7 @@ export function App() {
   // Global keyboard shortcuts
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT')
-      ) {
+      if (isEditableTarget(e.target)) {
         return;
       }
       const cmd = e.metaKey || e.ctrlKey;
@@ -107,28 +104,13 @@ export function App() {
         }
         return;
       }
+      if (cmd) return;
+      const tool = toolForShortcut(e.key);
+      if (tool) {
+        setActiveTool(tool);
+        return;
+      }
       switch (e.key.toLowerCase()) {
-        case 'v':
-          setActiveTool('select');
-          break;
-        case 'h':
-          setActiveTool('pan');
-          break;
-        case 'p':
-          setActiveTool('polygon');
-          break;
-        case 'r':
-          setActiveTool('rectangle');
-          break;
-        case 'c':
-          setActiveTool('circle');
-          break;
-        case 'e':
-          setActiveTool('vertex-edit');
-          break;
-        case 'k':
-          setActiveTool('knife');
-          break;
         case 'g':
           toggleGrid();
           break;

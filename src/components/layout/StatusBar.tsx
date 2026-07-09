@@ -3,6 +3,7 @@ import { useAppStore } from '../../app/appStore';
 import { polygonArea } from '../../geometry/area';
 import { formatArea } from '../../app/units';
 import type { PolygonEntity } from '../../app/projectTypes';
+import { toolDefinition } from '../../app/toolRegistry';
 
 export function StatusBar() {
   const { t } = useTranslation();
@@ -20,13 +21,13 @@ export function StatusBar() {
   );
   const selArea = selPolys.reduce((a, p) => a + polygonArea(p.geometry), 0);
   const error = errorRaw ? t(errorRaw) : null;
-  const guideKey = `status.guide${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
-  const guide = t(guideKey, { defaultValue: '' });
+  const toolMeta = toolDefinition(tool);
+  const guide = t(toolMeta.guideKey, { defaultValue: '' });
 
   return (
     <footer className="status-bar">
       <span>
-        {t('status.tool')}: <strong>{t(`toolbar.${tool === 'vertex-edit' ? 'vertexEdit' : tool}`)}</strong>
+        {t('status.tool')}: <strong>{t(toolMeta.labelKey)}</strong>
       </span>
       <span>{status ?? ''}</span>
       <span>

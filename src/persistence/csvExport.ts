@@ -2,7 +2,7 @@ import type { PolygonEntity, Project } from '../app/projectTypes';
 import { polygonArea } from '../geometry/area';
 import { polygonPerimeter } from '../geometry/measure';
 import { convertArea, AREA_UNIT_LABEL } from '../app/units';
-import { downloadText } from './svgExport';
+import { downloadText, timestamp } from './download';
 
 function polygons(project: Project): PolygonEntity[] {
   return project.entities.filter((e): e is PolygonEntity => e.type === 'polygon');
@@ -64,14 +64,6 @@ export function buildVertexCsv(project: Project): string {
     });
   }
   return lines.join('\n') + '\n';
-}
-
-function timestamp(): string {
-  return new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace('T', '-')
-    .slice(0, 13);
 }
 
 export function exportAreaCsvFile(project: Project): void {

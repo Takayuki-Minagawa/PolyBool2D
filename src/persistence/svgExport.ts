@@ -1,6 +1,7 @@
 import type { Project } from '../app/projectTypes';
 import type { PolygonGeometry, Ring } from '../geometry/types';
 import { boundsForEntities } from '../app/transform';
+import { downloadText, timestamp } from './download';
 
 const PADDING = 16;
 const FILL = '#3a8dde';
@@ -59,26 +60,6 @@ export function buildSvg(project: Project): string {
     '</svg>',
     '',
   ].join('\n');
-}
-
-function timestamp(): string {
-  return new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace('T', '-')
-    .slice(0, 13);
-}
-
-export function downloadText(text: string, filename: string, mime: string): void {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 export function exportSvgFile(project: Project): void {

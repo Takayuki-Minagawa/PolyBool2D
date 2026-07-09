@@ -267,6 +267,22 @@ describe('appStore updateSettings', () => {
     useAppStore.getState().redo();
     expect(useAppStore.getState().project.settings.areaDisplayUnit).toBe('cm2');
   });
+
+  it('toggles snap as UI state without clearing redo history', () => {
+    const [first] = seedRectangles();
+    useAppStore.getState().selectMany([first.id]);
+    useAppStore.getState().translateEntities([first.id], 5, 0);
+    useAppStore.getState().undo();
+    const before = useAppStore.getState().ui.snapEnabled;
+    const updatedAt = useAppStore.getState().project.updatedAt;
+    expect(useAppStore.getState().history.future.length).toBe(1);
+
+    useAppStore.getState().toggleSnap();
+
+    expect(useAppStore.getState().ui.snapEnabled).toBe(!before);
+    expect(useAppStore.getState().project.updatedAt).toBe(updatedAt);
+    expect(useAppStore.getState().history.future.length).toBe(1);
+  });
 });
 
 describe('appStore vertex editing', () => {

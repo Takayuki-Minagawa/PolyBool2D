@@ -27,19 +27,30 @@ export type BBox = {
   maxY: number;
 };
 
+export function expandBBox(box: BBox | null, point: Point): BBox {
+  if (!box) {
+    return {
+      minX: point.x,
+      minY: point.y,
+      maxX: point.x,
+      maxY: point.y,
+    };
+  }
+  return {
+    minX: Math.min(box.minX, point.x),
+    minY: Math.min(box.minY, point.y),
+    maxX: Math.max(box.maxX, point.x),
+    maxY: Math.max(box.maxY, point.y),
+  };
+}
+
 export function ringBBox(ring: Ring): BBox | null {
   if (ring.length === 0) return null;
-  let { x: minX, y: minY } = ring[0];
-  let maxX = minX;
-  let maxY = minY;
-  for (let i = 1; i < ring.length; i++) {
-    const p = ring[i];
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
+  let box: BBox | null = null;
+  for (const point of ring) {
+    box = expandBBox(box, point);
   }
-  return { minX, minY, maxX, maxY };
+  return box;
 }
 
 /** Axis-aligned bounding box of a polygon (the outer ring contains the holes). */
