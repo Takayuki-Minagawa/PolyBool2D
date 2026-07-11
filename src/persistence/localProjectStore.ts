@@ -139,12 +139,17 @@ function retainPreviousVersion(projectId: string, projectJson: string): boolean 
   if (!deserializeProject(projectJson)) return true;
   const backups = readBackups(projectId);
   if (backups[0]?.projectJson === projectJson) return true;
-  backups.unshift({
+  const next = [{
     id: makeId('backup'),
     savedAt: new Date().toISOString(),
     projectJson,
-  });
-  return writeBackups(projectId, backups);
+  }, ...backups].slice(0, MAX_PROJECT_BACKUPS);
+  // Quota pressure should reduce retained history before giving up. Replacing
+  // the backup blob with a shorter list can succeed without extra free space.
+  for (let length = next.length; length >= 1; length -= 1) {
+    if (writeBackups(projectId, next.slice(0, length))) return true;
+  }
+  return false;
 }
 
 /** Move the original single-project key into the indexed store at most once. */
@@ -254,22 +259,26 @@ export function saveProjectToLocal(project: Project): boolean {
   const key = projectKey(project.id);
   const previousJson = localStorage.getItem(key);
   if (previousJson === nextJson) {
+    // The project body is already durable. Index and active-project metadata
+    // are repairable hints and must not turn this into a false save failure.
+    upsertIndex(project);
     setActiveProjectId(project.id);
-    return upsertIndex(project);
+    return true;
   }
 
-  const backupSaved = previousJson === null || retainPreviousVersion(project.id, previousJson);
-  // Never replace the only current copy if the safety snapshot could not be
-  // persisted (for example because localStorage has reached its quota).
-  if (!backupSaved) return false;
+  // Backups are best effort. If quota pressure prevents even a single
+  // snapshot, saving the user's current work still takes priority.
+  if (previousJson !== null) retainPreviousVersion(project.id, previousJson);
   try {
     localStorage.setItem(key, nextJson);
   } catch {
     return false;
   }
-  const indexSaved = upsertIndex(project);
-  const activeSaved = setActiveProjectId(project.id);
-  return indexSaved && activeSaved;
+  // listLocalProjects() can reconstruct a stale/missing index by scanning the
+  // project keys, so these secondary writes are deliberately best effort.
+  upsertIndex(project);
+  setActiveProjectId(project.id);
+  return true;
 }
 
 export function deleteLocalProject(id: string): boolean {

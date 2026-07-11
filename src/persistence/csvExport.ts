@@ -1,6 +1,7 @@
 import type { PolygonEntity, Project } from '../app/projectTypes';
 import { polygonArea } from '../geometry/area';
 import { polygonPerimeter } from '../geometry/measure';
+import { polylineLength } from '../geometry/primitives';
 import { convertArea, AREA_UNIT_LABEL } from '../app/units';
 import { downloadText, timestamp } from './download';
 
@@ -44,6 +45,18 @@ export function buildAreaCsv(project: Project): string {
       ]),
     );
   }
+  for (const entity of project.entities) {
+    if (entity.type !== 'guide-line' || entity.kind === 'guide') continue;
+    lines.push(
+      row([
+        entity.name,
+        '',
+        polylineLength(entity.points).toFixed(coordDecimals),
+        entity.points.length,
+        0,
+      ]),
+    );
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -61,6 +74,20 @@ export function buildVertexCsv(project: Project): string {
           row([p.name, `hole${hi}`, i, pt.x.toFixed(coordDecimals), pt.y.toFixed(coordDecimals)]),
         );
       });
+    });
+  }
+  for (const entity of project.entities) {
+    if (entity.type !== 'guide-line' || entity.kind === 'guide') continue;
+    entity.points.forEach((point, index) => {
+      lines.push(
+        row([
+          entity.name,
+          entity.kind,
+          index,
+          point.x.toFixed(coordDecimals),
+          point.y.toFixed(coordDecimals),
+        ]),
+      );
     });
   }
   return lines.join('\n') + '\n';

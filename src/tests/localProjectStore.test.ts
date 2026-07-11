@@ -106,7 +106,7 @@ describe('local project backups', () => {
     expect(listProjectBackups(value.id)).toEqual([]);
   });
 
-  it('does not overwrite the current project when its safety backup cannot be saved', () => {
+  it('keeps saving current work when its safety backup cannot be saved', () => {
     const original = project('Original', '2026-01-01T00:00:00.000Z');
     expect(saveProjectToLocal(original)).toBe(true);
     const updated = { ...original, name: 'Updated', updatedAt: '2026-01-02T00:00:00.000Z' };
@@ -121,10 +121,36 @@ describe('local project backups', () => {
     });
 
     try {
-      expect(saveProjectToLocal(updated)).toBe(false);
+      expect(saveProjectToLocal(updated)).toBe(true);
     } finally {
       setItem.mockRestore();
     }
-    expect(loadProjectById(original.id)?.name).toBe('Original');
+    expect(loadProjectById(original.id)?.name).toBe('Updated');
+    expect(listProjectBackups(original.id)).toEqual([]);
   });
+
+  it.each(['pb2d.projects.index', 'pb2d.projects.active'])(
+    'does not report a body save failure when %s metadata cannot be updated',
+    (failingKey) => {
+      const original = project('Original', '2026-01-01T00:00:00.000Z');
+      expect(saveProjectToLocal(original)).toBe(true);
+      const updated = { ...original, name: 'Updated', updatedAt: '2026-01-02T00:00:00.000Z' };
+      const nativeSetItem = Storage.prototype.setItem;
+      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+        this: Storage,
+        key,
+        value,
+      ) {
+        if (String(key) === failingKey) throw new DOMException('Quota exceeded');
+        return nativeSetItem.call(this, key, value);
+      });
+
+      try {
+        expect(saveProjectToLocal(updated)).toBe(true);
+      } finally {
+        setItem.mockRestore();
+      }
+      expect(loadProjectById(original.id)?.name).toBe('Updated');
+    },
+  );
 });

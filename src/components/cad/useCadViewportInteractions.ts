@@ -136,12 +136,20 @@ export function useCadViewportInteractions(size: ViewportSize) {
 
   function getWorldPoint(screen: Point, anchor = drawingAnchor()): Point {
     const world = screenToWorld(screen, view);
+    const supportsAngularConstraint =
+      tool === 'polygon' ||
+      tool === 'hole' ||
+      tool === 'polyline' ||
+      tool === 'measure' ||
+      tool === 'guide-line' ||
+      tool === 'knife' ||
+      tool === 'arc';
     const context = {
       anchor,
-      angleIncrementDeg: project.settings.angleSnapEnabled
+      angleIncrementDeg: supportsAngularConstraint && snapEnabled && project.settings.angleSnapEnabled
         ? project.settings.angleSnapIncrementDeg
         : undefined,
-      ortho: shiftKeyRef.current,
+      ortho: supportsAngularConstraint && shiftKeyRef.current,
     };
     return snapEnabled
       ? snapWorldPoint(world, project, view, context)
@@ -292,10 +300,6 @@ export function useCadViewportInteractions(size: ViewportSize) {
 
   function onPointerMove(e: ReactPointerEvent<SVGSVGElement>) {
     const screen = getMousePoint(e);
-    const w = getWorldPoint(screen);
-    setStatusMessage(
-      `X: ${w.x.toFixed(project.settings.coordinatePrecision)}, Y: ${w.y.toFixed(project.settings.coordinatePrecision)}`,
-    );
 
     if (isPanningRef.current) {
       setView({
@@ -333,6 +337,10 @@ export function useCadViewportInteractions(size: ViewportSize) {
       updateEntitiesTransient(updates);
       return;
     }
+    const w = getWorldPoint(screen);
+    setStatusMessage(
+      `X: ${w.x.toFixed(project.settings.coordinatePrecision)}, Y: ${w.y.toFixed(project.settings.coordinatePrecision)}`,
+    );
     if (draggingVertexRef.current) {
       const drag = draggingVertexRef.current;
       if (!drag.moved) {
@@ -613,8 +621,6 @@ export function useCadViewportInteractions(size: ViewportSize) {
         return true;
       }
       if (p.type === 'circle') {
-        const direction = pointAtDistance(p.center, p.cursor, distanceValue);
-        if (!direction) return false;
         const created = state.addCircle(p.center, distanceValue);
         state.setPreview({ type: 'none' });
         circleStartRef.current = null;

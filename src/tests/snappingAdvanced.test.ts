@@ -59,7 +59,7 @@ describe('advanced project snapping', () => {
     });
   });
 
-  it('composes guide snapping with an angular constraint from its anchor', () => {
+  it('keeps an exact guide snap instead of moving it to an angular ray', () => {
     const project = createEmptyProject();
     disableGrid(project);
     project.settings.snapToVertex = false;
@@ -81,9 +81,32 @@ describe('advanced project snapping', () => {
       { anchor: { x: 0, y: 0 }, angleIncrementDeg: 45 },
     );
 
-    // The guide first projects to (10, 4), then the 21.8-degree direction is
-    // quantised to 0 degrees while preserving the anchor-to-point distance.
-    expect(result.y).toBeCloseTo(0, 10);
-    expect(result.x).toBeCloseTo(Math.hypot(10, 4), 10);
+    expect(result).toEqual({ x: 10, y: 4 });
+  });
+
+  it('keeps an exact vertex snap ahead of angular quantisation', () => {
+    const project = createEmptyProject();
+    disableGrid(project);
+    project.settings.snapToVertex = true;
+    project.settings.snapToEdge = false;
+    project.entities.push(
+      createPolygonEntity({
+        outer: [
+          { x: 10, y: 3 },
+          { x: 14, y: 3 },
+          { x: 10, y: 8 },
+        ],
+        holes: [],
+      }),
+    );
+
+    expect(
+      snapWorldPoint(
+        { x: 10.2, y: 3.1 },
+        project,
+        view,
+        { anchor: { x: 0, y: 0 }, angleIncrementDeg: 45 },
+      ),
+    ).toEqual({ x: 10, y: 3 });
   });
 });

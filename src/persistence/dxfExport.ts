@@ -1,5 +1,5 @@
-import type { Layer, PolygonEntity, Project, Unit } from '../app/projectTypes';
-import type { Ring } from '../geometry/types';
+import type { GuideLineEntity, Layer, PolygonEntity, Project, Unit } from '../app/projectTypes';
+import type { Point } from '../geometry/types';
 import { downloadText, timestamp } from './download';
 import { isEntityEffectivelyVisible } from '../app/layers';
 
@@ -48,15 +48,20 @@ function pair(lines: string[], code: number, value: string | number): void {
   lines.push(String(code), String(value));
 }
 
-function appendPolyline(lines: string[], ring: Ring, layerName: string): void {
-  if (ring.length < 3) return;
+function appendPolyline(
+  lines: string[],
+  points: Point[],
+  layerName: string,
+  closed: boolean,
+): void {
+  if (points.length < (closed ? 3 : 2)) return;
   pair(lines, 0, 'LWPOLYLINE');
   pair(lines, 100, 'AcDbEntity');
   pair(lines, 8, layerName);
   pair(lines, 100, 'AcDbPolyline');
-  pair(lines, 90, ring.length);
-  pair(lines, 70, 1); // closed polyline
-  for (const point of ring) {
+  pair(lines, 90, points.length);
+  pair(lines, 70, closed ? 1 : 0);
+  for (const point of points) {
     pair(lines, 10, dxfNumber(point.x));
     pair(lines, 20, dxfNumber(point.y));
   }
@@ -69,9 +74,18 @@ function polygons(project: Project): PolygonEntity[] {
   );
 }
 
+function linearEntities(project: Project): GuideLineEntity[] {
+  return project.entities.filter(
+    (entity): entity is GuideLineEntity =>
+      entity.type === 'guide-line' &&
+      entity.kind !== 'guide' &&
+      isEntityEffectivelyVisible(project, entity),
+  );
+}
+
 /**
- * Build a conservative ASCII DXF document. It uses only simple closed
- * LWPOLYLINE entities; every hole is emitted as its own closed polyline.
+ * Build a conservative ASCII DXF document. Polygon rings are closed
+ * LWPOLYLINE entities; polylines and sampled arcs are emitted open.
  */
 export function buildDxf(project: Project): string {
   const lines: string[] = [];
@@ -111,8 +125,11 @@ export function buildDxf(project: Project): string {
   pair(lines, 2, 'ENTITIES');
   for (const polygon of polygons(project)) {
     const layerName = layerNames.get(polygon.layerId) ?? '0';
-    appendPolyline(lines, polygon.geometry.outer, layerName);
-    for (const hole of polygon.geometry.holes) appendPolyline(lines, hole, layerName);
+    appendPolyline(lines, polygon.geometry.outer, layerName, true);
+    for (const hole of polygon.geometry.holes) appendPolyline(lines, hole, layerName, true);
+  }
+  for (const entity of linearEntities(project)) {
+    appendPolyline(lines, entity.points, layerNames.get(entity.layerId) ?? '0', false);
   }
   pair(lines, 0, 'ENDSEC');
   pair(lines, 0, 'EOF');

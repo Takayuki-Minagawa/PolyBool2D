@@ -33,6 +33,11 @@ export type PolygonFilletOptions = PolygonCornerOptions & {
 const MAX_SEGMENTS_PER_QUARTER = 256;
 const DEFAULT_SEGMENTS_PER_QUARTER = 4;
 const EDGE_FRACTION_LIMIT = 0.499;
+const SINGLE_CORNER_EDGE_LIMIT = 0.999999;
+
+function edgeConsumptionLimit(edgeLength: number, adjacentSelected: boolean): number {
+  return edgeLength * (adjacentSelected ? EDGE_FRACTION_LIMIT : SINGLE_CORNER_EDGE_LIMIT);
+}
 
 function finiteRing(ring: Ring): boolean {
   return (
@@ -100,12 +105,15 @@ export function chamferRing(
       continue;
     }
 
-    // Limiting each end to just under half an edge prevents adjacent corner
-    // edits from crossing when all vertices are processed together.
+    // Split an edge only when both of its endpoint corners are edited. A
+    // single selected corner may consume almost the full adjacent edge.
     const cut = Math.min(
       distanceAlongEdge,
-      previousLength * EDGE_FRACTION_LIMIT,
-      nextLength * EDGE_FRACTION_LIMIT,
+      edgeConsumptionLimit(
+        previousLength,
+        selected.has((index - 1 + ring.length) % ring.length),
+      ),
+      edgeConsumptionLimit(nextLength, selected.has((index + 1) % ring.length)),
     );
     if (!(cut > 0)) {
       appendPoint(result, vertex);
@@ -208,8 +216,11 @@ export function filletRing(
     const requestedTangent = radius / tangentFactor;
     const tangent = Math.min(
       requestedTangent,
-      previousLength * EDGE_FRACTION_LIMIT,
-      nextLength * EDGE_FRACTION_LIMIT,
+      edgeConsumptionLimit(
+        previousLength,
+        selected.has((index - 1 + ring.length) % ring.length),
+      ),
+      edgeConsumptionLimit(nextLength, selected.has((index + 1) % ring.length)),
     );
     if (!(tangent > 0) || !Number.isFinite(tangent)) {
       appendPoint(result, vertex);
@@ -234,10 +245,12 @@ export function filletRing(
       return null;
     }
 
-    // previousUnit x nextUnit has the opposite sign to the path's ordinary
-    // incoming x outgoing turn. Concave vertices take the opposite sweep.
+    // The angle between the two edge rays is supplementary to the circular
+    // arc's central angle. previousUnit x nextUnit has the opposite sign to
+    // the path's incoming x outgoing turn, so concave vertices sweep in the
+    // opposite direction while using the same tangent construction.
     const convex = turn * winding < 0;
-    const sweep = (convex ? winding : -winding) * angle;
+    const sweep = (convex ? winding : -winding) * (Math.PI - angle);
     const steps = Math.max(
       1,
       Math.ceil((Math.abs(sweep) / (Math.PI / 2)) * perQuarter),

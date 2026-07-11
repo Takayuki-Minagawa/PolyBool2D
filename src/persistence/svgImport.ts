@@ -7,6 +7,7 @@ import type { Point, PolygonGeometry, Ring } from '../geometry/types';
 const NUMBER_PATTERN = /[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g;
 const PATH_TOKEN_PATTERN = /[A-Za-z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g;
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const DEFAULT_MAX_RINGS = 1000;
 const NON_RENDERED_CONTAINERS = new Set(['defs', 'clippath', 'mask', 'marker', 'pattern', 'symbol']);
 
 type SvgMatrix = {
@@ -25,6 +26,8 @@ export type SvgImportOptions = {
   curveSamples?: number;
   flipY?: boolean;
   maxElements?: number;
+  /** Maximum total rings/subpaths accepted before nesting analysis. */
+  maxRings?: number;
 };
 
 export type SvgImportResult = {
@@ -170,10 +173,12 @@ function isCommand(token: string): boolean {
   return /^[A-Za-z]$/.test(token);
 }
 
+type LinearPathParseResult = { rings: Ring[]; limitExceeded: boolean };
+
 /** Parse polygonal path commands, including their relative lower-case forms. */
-function parseLinearPath(pathData: string): Ring[] | null {
+function parseLinearPath(pathData: string, maxRings: number): LinearPathParseResult | null {
   const tokens = pathData.match(PATH_TOKEN_PATTERN) ?? [];
-  if (tokens.length === 0) return [];
+  if (tokens.length === 0) return { rings: [], limitExceeded: false };
   if (tokens.some((token) => isCommand(token) && !/^[MmLlHhVvZz]$/.test(token))) return null;
 
   const rings: Ring[] = [];
@@ -182,6 +187,7 @@ function parseLinearPath(pathData: string): Ring[] | null {
   let current: Point = { x: 0, y: 0 };
   let start: Point = { x: 0, y: 0 };
   let points: Ring | null = null;
+  let limitExceeded = false;
 
   const readNumber = (): number | null => {
     if (index >= tokens.length || isCommand(tokens[index])) return null;
@@ -190,7 +196,10 @@ function parseLinearPath(pathData: string): Ring[] | null {
     return Number.isFinite(value) ? value : null;
   };
   const finish = () => {
-    if (points && points.length >= 3) rings.push(points);
+    if (points && points.length >= 3) {
+      if (rings.length >= maxRings) limitExceeded = true;
+      else rings.push(points);
+    }
     points = null;
   };
 
@@ -200,6 +209,7 @@ function parseLinearPath(pathData: string): Ring[] | null {
       index += 1;
       if (command === 'Z' || command === 'z') {
         finish();
+        if (limitExceeded) return { rings, limitExceeded: true };
         current = { ...start };
         command = '';
         continue;
@@ -219,6 +229,7 @@ function parseLinearPath(pathData: string): Ring[] | null {
       };
       if (upper === 'M') {
         finish();
+        if (limitExceeded) return { rings, limitExceeded: true };
         points = [next];
         start = { ...next };
         command = relative ? 'l' : 'L';
@@ -249,7 +260,7 @@ function parseLinearPath(pathData: string): Ring[] | null {
     return null;
   }
   finish();
-  return rings;
+  return { rings, limitExceeded };
 }
 
 type MeasurablePath = SVGPathElement & {
@@ -341,13 +352,22 @@ export function importSvgString(svgText: string, options: SvgImportOptions = {})
   const flipY = options.flipY !== false;
   const circleSegments = Math.max(8, Math.min(4096, Math.floor(options.circleSegments ?? 64)));
   const curveSamples = Math.max(8, Math.min(4096, Math.floor(options.curveSamples ?? 96)));
+  const requestedMaxRings = options.maxRings;
+  const maxRings = Number.isFinite(requestedMaxRings)
+    ? Math.max(1, Math.min(10_000, Math.floor(requestedMaxRings!)))
+    : DEFAULT_MAX_RINGS;
   const elements = [...xml.querySelectorAll('polygon, rect, circle, ellipse, path')]
     .filter(isRenderedShape);
   const limit = Math.max(1, Math.floor(options.maxElements ?? 5000));
   if (elements.length > limit) warnings.push('element-limit-exceeded');
   const polygons: PolygonGeometry[] = [];
+  let ringCount = 0;
 
   for (const element of elements.slice(0, limit)) {
+    if (ringCount >= maxRings) {
+      warnings.push('ring-limit-exceeded');
+      break;
+    }
     const tag = element.localName.toLowerCase();
     const transform = transformForElement(element);
     if (!transform) {
@@ -357,8 +377,10 @@ export function importSvgString(svgText: string, options: SvgImportOptions = {})
     if (tag === 'polygon') {
       const ring = polygonPoints(element.getAttribute('points') ?? '');
       const polygon = ring ? normalizedPolygon(ring, flipY, transform) : null;
-      if (polygon) polygons.push(polygon);
-      else warnings.push('invalid-polygon');
+      if (polygon) {
+        polygons.push(polygon);
+        ringCount += 1;
+      } else warnings.push('invalid-polygon');
       continue;
     }
 
@@ -374,8 +396,10 @@ export function importSvgString(svgText: string, options: SvgImportOptions = {})
             transform,
           )
         : null;
-      if (polygon) polygons.push(polygon);
-      else warnings.push('invalid-rect');
+      if (polygon) {
+        polygons.push(polygon);
+        ringCount += 1;
+      } else warnings.push('invalid-rect');
       continue;
     }
 
@@ -385,8 +409,10 @@ export function importSvgString(svgText: string, options: SvgImportOptions = {})
         ? circleToRing({ x: numberAttr(element, 'cx'), y: numberAttr(element, 'cy') }, radius, circleSegments)
         : null;
       const polygon = ring ? normalizedPolygon(ring, flipY, transform) : null;
-      if (polygon) polygons.push(polygon);
-      else warnings.push('invalid-circle');
+      if (polygon) {
+        polygons.push(polygon);
+        ringCount += 1;
+      } else warnings.push('invalid-circle');
       continue;
     }
 
@@ -403,23 +429,36 @@ export function importSvgString(svgText: string, options: SvgImportOptions = {})
         }
       }
       const polygon = normalizedPolygon(ring, flipY, transform);
-      if (polygon) polygons.push(polygon);
-      else warnings.push('invalid-ellipse');
+      if (polygon) {
+        polygons.push(polygon);
+        ringCount += 1;
+      } else warnings.push('invalid-ellipse');
       continue;
     }
 
     const pathData = element.getAttribute('d') ?? '';
-    const linear = parseLinearPath(pathData);
+    const linear = parseLinearPath(pathData, maxRings - ringCount);
     const moveCount = pathData.match(/[Mm]/g)?.length ?? 0;
     if (linear === null && moveCount > 1) {
       warnings.push('unsupported-path');
       continue;
     }
+    if (linear?.limitExceeded) {
+      warnings.push('ring-limit-exceeded');
+      break;
+    }
     const rings = linear
-      ?? [sampleCurvedPath(pathData, curveSamples)].filter((ring): ring is Ring => ring !== null);
+      ? linear.rings
+      : [sampleCurvedPath(pathData, curveSamples)].filter((ring): ring is Ring => ring !== null);
+    if (rings.length > maxRings - ringCount) {
+      warnings.push('ring-limit-exceeded');
+      break;
+    }
     const imported = ringsToPolygons(rings, flipY, transform);
-    if (imported.length > 0) polygons.push(...imported);
-    else warnings.push(linear === null ? 'unsupported-path' : 'invalid-path');
+    if (imported.length > 0) {
+      polygons.push(...imported);
+      ringCount += rings.length;
+    } else warnings.push(linear === null ? 'unsupported-path' : 'invalid-path');
   }
 
   return { polygons, warnings };

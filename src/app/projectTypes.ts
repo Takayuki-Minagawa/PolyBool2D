@@ -145,7 +145,9 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   coordinatePrecision: 3,
   circleSegments: 64,
   areaDisplayUnit: 'm2',
-  angleSnapEnabled: true,
+  // Keep legacy/free drawing behaviour unless the user explicitly enables
+  // angular quantisation in project settings.
+  angleSnapEnabled: false,
   angleSnapIncrementDeg: 15,
 };
 

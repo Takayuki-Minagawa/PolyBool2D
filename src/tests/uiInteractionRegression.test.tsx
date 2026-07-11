@@ -40,7 +40,13 @@ beforeEach(async () => {
   useAppStore.setState((state) => ({
     activeTool: 'select',
     preview: { type: 'none' },
-    ui: { ...state.ui, language: 'ja', manualOpen: false, shortcutsOpen: false },
+    ui: {
+      ...state.ui,
+      language: 'ja',
+      manualOpen: false,
+      shortcutsOpen: false,
+      snapEnabled: true,
+    },
   }));
   await i18n.changeLanguage('ja');
   host = document.createElement('div');
@@ -169,6 +175,112 @@ describe('viewport interaction regressions', () => {
     }
     expect(useAppStore.getState().history.past).toHaveLength(1);
     expect(useAppStore.getState().project.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+  });
+
+  it('uses Shift for a square rectangle without collapsing either dimension', () => {
+    act(() => {
+      useAppStore.getState().setActiveTool('rectangle');
+      useAppStore.setState((state) => ({
+        project: {
+          ...state.project,
+          settings: { ...state.project.settings, angleSnapEnabled: true },
+        },
+        ui: { ...state.ui, snapEnabled: false },
+      }));
+    });
+    render(<CadViewport />);
+    const svg = host!.querySelector('svg')!;
+
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' })));
+    act(() => {
+      svg.dispatchEvent(new MouseEvent('pointerdown', {
+        button: 0,
+        bubbles: true,
+        clientX: 100,
+        clientY: 100,
+      }));
+      svg.dispatchEvent(new MouseEvent('pointermove', {
+        button: 0,
+        bubbles: true,
+        clientX: 150,
+        clientY: 130,
+      }));
+      svg.dispatchEvent(new MouseEvent('pointerup', {
+        button: 0,
+        bubbles: true,
+        clientX: 150,
+        clientY: 130,
+      }));
+    });
+    act(() => window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift' })));
+
+    const polygon = useAppStore.getState().project.entities.find(
+      (entity) => entity.type === 'polygon',
+    );
+    expect(polygon?.type).toBe('polygon');
+    if (polygon?.type === 'polygon') {
+      const xs = polygon.geometry.outer.map((point) => point.x);
+      const ys = polygon.geometry.outer.map((point) => point.y);
+      const width = Math.max(...xs) - Math.min(...xs);
+      const height = Math.max(...ys) - Math.min(...ys);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeCloseTo(width);
+    }
+  });
+
+  it('accepts an exact circle radius before the pointer has moved', () => {
+    act(() => {
+      useAppStore.getState().setActiveTool('circle');
+      useAppStore.setState((state) => ({ ui: { ...state.ui, snapEnabled: false } }));
+    });
+    render(<CadViewport />);
+    const svg = host!.querySelector('svg')!;
+    act(() => {
+      svg.dispatchEvent(new MouseEvent('pointerdown', {
+        button: 0,
+        bubbles: true,
+        clientX: 200,
+        clientY: 200,
+      }));
+    });
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '2' })));
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' })));
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
+
+    const polygon = useAppStore.getState().project.entities.find(
+      (entity) => entity.type === 'polygon',
+    );
+    expect(polygon?.type).toBe('polygon');
+    if (polygon?.type === 'polygon') {
+      const xs = polygon.geometry.outer.map((point) => point.x);
+      expect((Math.max(...xs) - Math.min(...xs)) / 2).toBeCloseTo(25, 6);
+    }
+  });
+
+  it('uses selection order for context-menu difference subject', () => {
+    let firstId = '';
+    let secondId = '';
+    act(() => {
+      firstId = useAppStore.getState().addRectangle({ x: 0, y: 0 }, { x: 10, y: 10 })!.id;
+      secondId = useAppStore.getState().addRectangle({ x: 5, y: 0 }, { x: 15, y: 10 })!.id;
+      useAppStore.getState().selectMany([secondId, firstId]);
+    });
+    render(<CadViewport />);
+    const firstPath = host!.querySelector('svg path')!;
+    act(() => {
+      firstPath.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 40 }));
+    });
+    const difference = [...host!.querySelectorAll<HTMLButtonElement>('[role="menu"] button')]
+      .find((button) => button.textContent === '差分')!;
+    act(() => difference.click());
+
+    const result = useAppStore.getState().project.entities.find(
+      (entity) => entity.type === 'polygon',
+    );
+    expect(result?.type).toBe('polygon');
+    if (result?.type === 'polygon') {
+      expect(Math.min(...result.geometry.outer.map((point) => point.x))).toBeCloseTo(10);
+    }
   });
 });
 

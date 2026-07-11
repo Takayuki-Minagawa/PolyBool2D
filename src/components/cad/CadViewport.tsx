@@ -48,9 +48,10 @@ export function CadViewport() {
   );
   const contextItems = useMemo<ContextMenuItem[]>(() => {
     const selected = selectedIds;
-    const selectedPolygons = project.entities
-      .filter((entity) => entity.type === 'polygon' && selected.includes(entity.id))
-      .map((entity) => entity.id);
+    const entitiesById = new Map(project.entities.map((entity) => [entity.id, entity]));
+    const selectedPolygons = selected.filter(
+      (id) => entitiesById.get(id)?.type === 'polygon',
+    );
     const items: ContextMenuItem[] = [
       { id: 'copy', label: t('context.copy'), disabled: selected.length === 0, onSelect: copySelected },
       { id: 'cut', label: t('context.cut'), disabled: selected.length === 0, onSelect: cutSelected },

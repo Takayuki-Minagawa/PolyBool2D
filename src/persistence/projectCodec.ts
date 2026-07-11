@@ -256,8 +256,10 @@ export function deserializeProject(json: string): Project | null {
   const entities: Entity[] = [];
   for (const e of parsed.entities) {
     const parsedEntity = parseEntity(e);
-    if (!parsedEntity) return null;
-    entities.push(parsedEntity);
+    // Keep the recoverable portion of a project when one entity is corrupt.
+    // Project metadata/layers remain strict, but a malformed drawing item must
+    // not make every otherwise valid entity inaccessible.
+    if (parsedEntity) entities.push(parsedEntity);
   }
 
   return {

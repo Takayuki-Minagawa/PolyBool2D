@@ -71,8 +71,8 @@ segment. Grid, vertex, edge/midpoint and pixel tolerance settings are editable i
 
 ### Angular snap and `Shift`
 
-After the first point, the direction is quantized from the previous point in 15° increments by
-default. Project settings can enable/disable angular snapping and change the increment. Hold
+When angular snap is enabled, directions after the first point are quantized from the previous
+point in 15° increments (it is off initially). Project settings can enable/disable angular snapping and change the increment. Hold
 `Shift` to prioritize a 90° horizontal/vertical constraint. For rectangles, `Shift` also
 constrains the result to a square.
 
@@ -244,11 +244,11 @@ device failure or storage quota problems, so export important work as JSON too.
 | --- | --- |
 | **Import JSON / JSON** | Import / export a complete project including settings, layers, areas and linear entities |
 | **Import SVG** | Polygonize `polygon`, `rect`, `circle`, `ellipse` and `path` elements |
-| **SVG** | Export visible polygons as paths with holes |
+| **SVG** | Export visible polygons as paths with holes, plus polylines and arcs |
 | **PNG** | Rasterize the SVG export on a transparent background, up to 4096 px on the long side |
-| **DXF** | Export visible outer and hole rings as closed `LWPOLYLINE` entities |
-| **Area CSV** | Export polygon name, area, perimeter, vertex and hole counts |
-| **Vertex CSV** | Export every outer and hole vertex coordinate |
+| **DXF** | Export polygon rings closed and polylines/arcs open as `LWPOLYLINE` entities |
+| **Area CSV** | Export polygon area/perimeter and polyline/arc length |
+| **Vertex CSV** | Export polygon, polyline and arc vertex coordinates |
 
 For SVG paths, absolute and relative `M/L/H/V/Z` commands are supported directly. Curves are
 sampled when the browser provides path-length measurement APIs. Styles, text, images and other
@@ -281,7 +281,7 @@ interpreted and displayed.
 
 - Circles, ellipses, arcs, fillets and round offsets are line-segment approximations.
 - SVG import supports a subset of elements and path commands.
-- SVG / PNG / DXF exports omit the grid, HUD, measurement preview and linear entities.
+- SVG / PNG / DXF exports omit the grid, HUD, measurement preview and construction guides.
 - DXF holes are independent closed polylines; no DWG, region or hatch data is generated.
 - Local saves depend on browser storage and there is no real-time collaborative editing.
 - 3D, BIM and DWG import/export are not supported.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject } from '../app/projectFactory';
 import { constrainPointToAngle, snapWorldPoint } from '../app/snapping';
-import type { ViewTransform } from '../app/projectTypes';
+import { DEFAULT_SETTINGS, type ViewTransform } from '../app/projectTypes';
 
 const view: ViewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
 
@@ -19,6 +19,9 @@ describe('snapWorldPoint', () => {
 });
 
 describe('angular drawing constraints', () => {
+  it('is disabled by default for backwards-compatible free drawing', () => {
+    expect(DEFAULT_SETTINGS.angleSnapEnabled).toBe(false);
+  });
   it('quantises a point to the configured angular increment', () => {
     const constrained = constrainPointToAngle(
       { x: 10, y: 3 },

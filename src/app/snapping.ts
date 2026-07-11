@@ -128,24 +128,22 @@ export function snapWorldPoint(
   const allVertices = index.vertices.queryValues(query);
   const allSegments = index.segments.queryValues(query);
 
-  let snapped = world;
   if (settings.snapToVertex) {
     const v = nearestVertex(world, allVertices);
     if (v && v.distance < tolWorld) {
-      snapped = v.point;
-      return constrainPointToAngle(snapped, context);
+      // Exact object snaps take precedence over angular constraints. Applying
+      // angle quantisation here would move the point away from the vertex.
+      return v.point;
     }
   }
   if (settings.snapToEdge) {
     const e = nearestEdgePoint(world, allSegments);
     if (e) {
       if (e.midpointDistance < tolWorld) {
-        snapped = e.midpoint;
-        return constrainPointToAngle(snapped, context);
+        return e.midpoint;
       }
       if (e.distance < tolWorld / 2) {
-        snapped = e.point;
-        return constrainPointToAngle(snapped, context);
+        return e.point;
       }
     }
     let nearestGuide: { point: Point; distance: number } | null = null;
@@ -158,7 +156,7 @@ export function snapWorldPoint(
       }
     }
     if (nearestGuide && nearestGuide.distance < tolWorld / 2) {
-      return constrainPointToAngle(nearestGuide.point, context);
+      return nearestGuide.point;
     }
   }
   if (settings.snapToGrid) {
@@ -166,8 +164,8 @@ export function snapWorldPoint(
     const dx = g.x - world.x;
     const dy = g.y - world.y;
     if (Math.sqrt(dx * dx + dy * dy) * view.scale < settings.snapTolerancePx) {
-      snapped = g;
+      return g;
     }
   }
-  return constrainPointToAngle(snapped, context);
+  return constrainPointToAngle(world, context);
 }

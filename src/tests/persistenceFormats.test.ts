@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
+import { createEmptyProject, createLinearEntity, createPolygonEntity } from '../app/projectFactory';
 import { rectangleToRing } from '../geometry/circle';
 import { polygonArea } from '../geometry/area';
 import { buildDxf } from '../persistence/dxfExport';
@@ -33,6 +33,18 @@ describe('DXF export', () => {
     expect(dxf.match(/100\r\nAcDbPolyline\r\n/g)).toHaveLength(2);
     expect(dxf).toContain('9\r\n$INSUNITS\r\n70\r\n4\r\n');
     expect(dxf).toMatch(/0\r\nEOF\r\n$/);
+  });
+
+  it('emits polylines and sampled arcs as open LWPOLYLINE entities', () => {
+    const project = createEmptyProject();
+    project.entities = [
+      createLinearEntity([{ x: 0, y: 0 }, { x: 10, y: 5 }], 'polyline'),
+      createLinearEntity([{ x: 10, y: 5 }, { x: 20, y: 0 }], 'arc'),
+      createLinearEntity([{ x: 0, y: 20 }, { x: 10, y: 20 }], 'guide'),
+    ];
+    const dxf = buildDxf(project);
+    expect(dxf.match(/LWPOLYLINE/g)).toHaveLength(2);
+    expect(dxf.match(/100\r\nAcDbPolyline\r\n90\r\n\d+\r\n70\r\n0\r\n/g)).toHaveLength(2);
   });
 });
 
@@ -91,6 +103,19 @@ describe('SVG import', () => {
       </svg>`);
     expect(result.polygons).toEqual([]);
     expect(result.warnings).toContain('unsupported-path');
+  });
+
+  it('stops before path subpaths can exceed the ring nesting limit', () => {
+    const subpaths = Array.from(
+      { length: 20 },
+      (_, index) => `M ${index * 3} 0 h 2 v 2 h -2 z`,
+    ).join(' ');
+    const result = importSvgString(
+      `<svg xmlns="http://www.w3.org/2000/svg"><path d="${subpaths}" /></svg>`,
+      { maxRings: 10 },
+    );
+    expect(result.polygons).toEqual([]);
+    expect(result.warnings).toContain('ring-limit-exceeded');
   });
 });
 
