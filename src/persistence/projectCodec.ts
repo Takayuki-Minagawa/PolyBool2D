@@ -6,13 +6,20 @@ import type {
   Project,
   ProjectSettings,
 } from '../app/projectTypes';
-import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_STYLE } from '../app/projectTypes';
+import {
+  APP_VERSION,
+  DEFAULT_LINE_STYLE,
+  DEFAULT_SETTINGS,
+  DEFAULT_STYLE,
+} from '../app/projectTypes';
 
 export function serializeProject(p: Project): string {
   return JSON.stringify(p, null, 2);
 }
 
-export const SUPPORTED_VERSIONS = new Set([APP_VERSION]);
+export const SUPPORTED_VERSIONS = new Set(['0.1.0', APP_VERSION]);
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -44,7 +51,10 @@ function parseLayer(v: unknown): Layer | null {
     name: v.name,
     visible: v.visible !== false,
     locked: v.locked === true,
-    color: typeof v.color === 'string' ? v.color : '#3a8dde',
+    color:
+      typeof v.color === 'string' && HEX_COLOR.test(v.color)
+        ? v.color.toLowerCase()
+        : '#3a8dde',
   };
 }
 
@@ -85,6 +95,12 @@ function parseSettings(v: unknown): ProjectSettings {
   if (v.areaDisplayUnit === 'mm2' || v.areaDisplayUnit === 'cm2' || v.areaDisplayUnit === 'm2') {
     s.areaDisplayUnit = v.areaDisplayUnit;
   }
+  if (typeof v.angleSnapEnabled === 'boolean') {
+    s.angleSnapEnabled = v.angleSnapEnabled;
+  }
+  if (isFiniteNumber(v.angleSnapIncrementDeg) && v.angleSnapIncrementDeg > 0) {
+    s.angleSnapIncrementDeg = clamp(v.angleSnapIncrementDeg, 1, 180);
+  }
   return s;
 }
 
@@ -99,17 +115,41 @@ function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
         stroke:
           typeof v.style.stroke === 'string' ? v.style.stroke : DEFAULT_STYLE.stroke,
         strokeWidth:
-          typeof v.style.strokeWidth === 'number'
-            ? v.style.strokeWidth
+          isFiniteNumber(v.style.strokeWidth) && v.style.strokeWidth >= 0
+            ? clamp(v.style.strokeWidth, 0, 1_000)
             : DEFAULT_STYLE.strokeWidth,
         opacity:
-          typeof v.style.opacity === 'number'
-            ? v.style.opacity
+          isFiniteNumber(v.style.opacity)
+            ? clamp(v.style.opacity, 0, 1)
             : DEFAULT_STYLE.opacity,
       }
     : { ...DEFAULT_STYLE };
-  const ALLOWED_SHAPES = ['polygon', 'rectangle', 'circle', 'boolean-result', 'knife-result'] as const;
-  const ALLOWED_OPS = ['draw', 'union', 'difference', 'intersection', 'xor', 'knife'] as const;
+  const ALLOWED_SHAPES = [
+    'polygon',
+    'rectangle',
+    'circle',
+    'ellipse',
+    'boolean-result',
+    'knife-result',
+    'offset-result',
+    'corner-result',
+    'bounding-rectangle',
+    'svg-import',
+  ] as const;
+  const ALLOWED_OPS = [
+    'draw',
+    'union',
+    'difference',
+    'intersection',
+    'xor',
+    'knife',
+    'offset',
+    'repair',
+    'fillet',
+    'chamfer',
+    'minimum-bounds',
+    'import',
+  ] as const;
   type Shape = (typeof ALLOWED_SHAPES)[number];
   type Op = (typeof ALLOWED_OPS)[number];
   const metadata = isObject(v.metadata)
@@ -146,12 +186,32 @@ function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
 function parseGuideLineEntity(v: Record<string, unknown>): GuideLineEntity | null {
   if (typeof v.id !== 'string') return null;
   if (typeof v.layerId !== 'string') return null;
-  if (!isRing(v.points)) return null;
+  if (!isRing(v.points) || v.points.length < 2) return null;
+  const kind = v.kind === 'polyline' || v.kind === 'arc' || v.kind === 'guide'
+    ? v.kind
+    : 'guide';
+  const style = isObject(v.style)
+    ? {
+        stroke:
+          typeof v.style.stroke === 'string'
+            ? v.style.stroke
+            : DEFAULT_LINE_STYLE.stroke,
+        strokeWidth: isFiniteNumber(v.style.strokeWidth) && v.style.strokeWidth >= 0
+          ? clamp(v.style.strokeWidth, 0, 1_000)
+          : DEFAULT_LINE_STYLE.strokeWidth,
+        opacity: isFiniteNumber(v.style.opacity)
+          ? clamp(v.style.opacity, 0, 1)
+          : DEFAULT_LINE_STYLE.opacity,
+      }
+    : { ...DEFAULT_LINE_STYLE };
   return {
     id: v.id,
     type: 'guide-line',
+    name: typeof v.name === 'string' ? v.name : kind === 'guide' ? 'Guide' : 'Polyline',
+    kind,
     layerId: v.layerId,
     points: v.points.map((p) => ({ x: p.x, y: p.y })),
+    style,
     locked: v.locked === true,
     visible: v.visible !== false,
   };
@@ -196,14 +256,16 @@ export function deserializeProject(json: string): Project | null {
   const entities: Entity[] = [];
   for (const e of parsed.entities) {
     const parsedEntity = parseEntity(e);
-    if (!parsedEntity) return null;
-    entities.push(parsedEntity);
+    // Keep the recoverable portion of a project when one entity is corrupt.
+    // Project metadata/layers remain strict, but a malformed drawing item must
+    // not make every otherwise valid entity inaccessible.
+    if (parsedEntity) entities.push(parsedEntity);
   }
 
   return {
     id: parsed.id,
     name: parsed.name,
-    version: parsed.version,
+    version: APP_VERSION,
     unit: parsed.unit,
     createdAt: parsed.createdAt,
     updatedAt: parsed.updatedAt,

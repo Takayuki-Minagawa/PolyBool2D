@@ -64,13 +64,13 @@ export function applyTransientGeometryUpdates(
   updates: Map<string, PolygonGeometry>,
 ): Project {
   if (updates.size === 0) return project;
-  return {
-    ...project,
-    entities: project.entities.map((e) => {
+  return touchProject(
+    project,
+    project.entities.map((e) => {
       const geometry = isPolygon(e) ? updates.get(e.id) : undefined;
       return geometry ? { ...e, geometry } : e;
     }),
-  };
+  );
 }
 
 export function editRingGeometry(

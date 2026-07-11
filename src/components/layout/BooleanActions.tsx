@@ -23,13 +23,18 @@ const LABELS = {
 
 export function BooleanActions({ variant, showDifferenceHint = false }: BooleanActionsProps) {
   const { t } = useTranslation();
+  const project = useAppStore((s) => s.project);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
   const unionSelected = useAppStore((s) => s.unionSelected);
   const intersectSelected = useAppStore((s) => s.intersectSelected);
   const xorSelected = useAppStore((s) => s.xorSelected);
   const differenceSelected = useAppStore((s) => s.differenceSelected);
   const labels = LABELS[variant];
-  const disabled = selectedIds.length < 2;
+  const polygonIds = new Set(
+    project.entities.filter((entity) => entity.type === 'polygon').map((entity) => entity.id),
+  );
+  const selectedPolygonIds = selectedIds.filter((id) => polygonIds.has(id));
+  const disabled = selectedPolygonIds.length < 2;
 
   return (
     <>
@@ -39,7 +44,7 @@ export function BooleanActions({ variant, showDifferenceHint = false }: BooleanA
       <button
         onClick={() => {
           if (disabled) return;
-          const [subject, ...cutters] = selectedIds;
+          const [subject, ...cutters] = selectedPolygonIds;
           differenceSelected(subject, cutters);
         }}
         disabled={disabled}

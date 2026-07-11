@@ -61,6 +61,18 @@ export function validatePolygon(poly: PolygonGeometry): GeometryValidationResult
       break;
     }
   }
+  if (
+    [poly.outer, ...poly.holes]
+      .flat()
+      .some(
+        (point) => !Number.isFinite(point.x) || !Number.isFinite(point.y),
+      )
+  ) {
+    // Non-finite values poison all of the predicates below (NaN comparisons
+    // are false), so reject them before intersection and area calculations.
+    pushIssueOnce(issues, 'zero-area');
+    return { valid: false, issues };
+  }
   if (poly.outer.length >= 3 && ringHasSelfIntersection(poly.outer)) {
     issues.push('self-intersection');
   } else {

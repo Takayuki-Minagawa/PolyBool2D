@@ -39,6 +39,13 @@ export function dedupeAdjacent(ring: Ring, eps = EPS): Ring {
 }
 
 export function normalizeRing(ring: Ring): Ring | null {
+  if (
+    ring.some(
+      (point) => !Number.isFinite(point.x) || !Number.isFinite(point.y),
+    )
+  ) {
+    return null;
+  }
   const rounded = ring.map(roundPoint);
   const cleaned = dedupeAdjacent(rounded);
   if (cleaned.length < 3) return null;

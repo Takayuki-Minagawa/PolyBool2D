@@ -11,6 +11,7 @@ export function createUiActions(set: AppSet): Pick<
   | 'setTheme'
   | 'setLanguage'
   | 'setManualOpen'
+  | 'setShortcutsOpen'
   | 'toggleGrid'
   | 'toggleSnap'
   | 'setStatusMessage'
@@ -27,7 +28,15 @@ export function createUiActions(set: AppSet): Pick<
       set((s) => ({ ui: { ...s.ui, language: l } }));
     },
 
-    setManualOpen: (v) => set((s) => ({ ui: { ...s.ui, manualOpen: v } })),
+    setManualOpen: (v) =>
+      set((s) => ({
+        ui: { ...s.ui, manualOpen: v, shortcutsOpen: v ? false : s.ui.shortcutsOpen },
+      })),
+
+    setShortcutsOpen: (v) =>
+      set((s) => ({
+        ui: { ...s.ui, shortcutsOpen: v, manualOpen: v ? false : s.ui.manualOpen },
+      })),
 
     toggleGrid: () =>
       set((s) => ({ ui: { ...s.ui, showGrid: !s.ui.showGrid } })),

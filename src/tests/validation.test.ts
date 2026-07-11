@@ -53,4 +53,21 @@ describe('validation', () => {
     expect(r.valid).toBe(false);
     expect(r.issues).toContain('hole-overlap');
   });
+
+  it.each([Number.NaN, Infinity, -Infinity])(
+    'rejects a non-finite coordinate (%s)',
+    (coordinate) => {
+      const r = validatePolygon({
+        outer: [
+          { x: 0, y: 0 },
+          { x: coordinate, y: 0 },
+          { x: 0, y: 10 },
+        ],
+        holes: [],
+      });
+
+      expect(r.valid).toBe(false);
+      expect(r.issues).toContain('zero-area');
+    },
+  );
 });

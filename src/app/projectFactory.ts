@@ -1,13 +1,16 @@
 import { makeId } from './idUtils';
 import {
   APP_VERSION,
+  DEFAULT_LINE_STYLE,
   DEFAULT_SETTINGS,
   DEFAULT_STYLE,
+  type GuideLineEntity,
   type Layer,
+  type LinearEntityKind,
   type PolygonEntity,
   type Project,
 } from './projectTypes';
-import type { PolygonGeometry } from '../geometry/types';
+import type { Point, PolygonGeometry } from '../geometry/types';
 
 export function defaultLayer(): Layer {
   return {
@@ -48,5 +51,24 @@ export function createPolygonEntity(
     locked: false,
     visible: true,
     metadata: options.metadata,
+  };
+}
+
+export function createLinearEntity(
+  points: Point[],
+  kind: LinearEntityKind,
+  options: Partial<Pick<GuideLineEntity, 'name' | 'layerId' | 'style'>> = {},
+): GuideLineEntity {
+  const defaultName = kind === 'guide' ? 'Guide' : kind === 'arc' ? 'Arc' : 'Polyline';
+  return {
+    id: makeId('line'),
+    type: 'guide-line',
+    name: options.name ?? defaultName,
+    kind,
+    layerId: options.layerId ?? 'layer-default',
+    points: points.map((point) => ({ ...point })),
+    style: { ...DEFAULT_LINE_STYLE, ...options.style },
+    locked: false,
+    visible: true,
   };
 }

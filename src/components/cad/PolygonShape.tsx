@@ -5,7 +5,11 @@ type Props = {
   entity: PolygonEntity;
   view: ViewTransform;
   selected: boolean;
+  color?: string;
+  invalid?: boolean;
+  locked?: boolean;
   onPointerDown?: (e: React.PointerEvent<SVGPathElement>) => void;
+  onContextMenu?: (e: React.MouseEvent<SVGPathElement>) => void;
 };
 
 function ringToPath(ring: { x: number; y: number }[], view: ViewTransform): string {
@@ -21,7 +25,16 @@ function ringToPath(ring: { x: number; y: number }[], view: ViewTransform): stri
   );
 }
 
-export function PolygonShape({ entity, view, selected, onPointerDown }: Props) {
+export function PolygonShape({
+  entity,
+  view,
+  selected,
+  color,
+  invalid = false,
+  locked = false,
+  onPointerDown,
+  onContextMenu,
+}: Props) {
   const { geometry } = entity;
   const path =
     ringToPath(geometry.outer, view) +
@@ -31,12 +44,21 @@ export function PolygonShape({ entity, view, selected, onPointerDown }: Props) {
   return (
     <path
       d={path}
-      fill="var(--cad-fill)"
+      fill={color ?? entity.style.fill}
+      fillOpacity={Math.max(0, Math.min(1, entity.style.opacity * 0.28))}
       fillRule="evenodd"
-      stroke={selected ? 'var(--cad-selected-stroke)' : 'var(--cad-stroke)'}
+      stroke={
+        invalid
+          ? 'var(--cad-invalid-stroke, #e53935)'
+          : selected
+            ? 'var(--cad-selected-stroke)'
+            : color ?? entity.style.stroke
+      }
       strokeWidth={selected ? 2 : 1.4}
+      opacity={entity.visible ? 1 : 0}
       onPointerDown={onPointerDown}
-      style={{ cursor: 'pointer' }}
+      onContextMenu={onContextMenu}
+      style={{ cursor: locked ? 'not-allowed' : 'pointer' }}
     />
   );
 }

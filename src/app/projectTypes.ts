@@ -15,6 +15,8 @@ export type ProjectSettings = {
   coordinatePrecision: number;
   circleSegments: number;
   areaDisplayUnit: AreaUnit;
+  angleSnapEnabled: boolean;
+  angleSnapIncrementDeg: number;
 };
 
 export type Layer = {
@@ -42,16 +44,49 @@ export type PolygonEntity = {
   locked: boolean;
   visible: boolean;
   metadata?: {
-    sourceShape?: 'polygon' | 'rectangle' | 'circle' | 'boolean-result' | 'knife-result';
-    createdByOperation?: 'draw' | 'union' | 'difference' | 'intersection' | 'xor' | 'knife';
+    sourceShape?:
+      | 'polygon'
+      | 'rectangle'
+      | 'circle'
+      | 'ellipse'
+      | 'boolean-result'
+      | 'knife-result'
+      | 'offset-result'
+      | 'corner-result'
+      | 'bounding-rectangle'
+      | 'svg-import';
+    createdByOperation?:
+      | 'draw'
+      | 'union'
+      | 'difference'
+      | 'intersection'
+      | 'xor'
+      | 'knife'
+      | 'offset'
+      | 'repair'
+      | 'fillet'
+      | 'chamfer'
+      | 'minimum-bounds'
+      | 'import';
   };
+};
+
+export type LinearEntityKind = 'guide' | 'polyline' | 'arc';
+
+export type LineStyle = {
+  stroke: string;
+  strokeWidth: number;
+  opacity: number;
 };
 
 export type GuideLineEntity = {
   id: string;
   type: 'guide-line';
+  name: string;
+  kind: LinearEntityKind;
   layerId: string;
   points: Point[];
+  style: LineStyle;
   locked: boolean;
   visible: boolean;
 };
@@ -76,6 +111,12 @@ export type ToolName =
   | 'polygon'
   | 'rectangle'
   | 'circle'
+  | 'ellipse'
+  | 'arc'
+  | 'polyline'
+  | 'hole'
+  | 'guide-line'
+  | 'measure'
   | 'vertex-edit'
   | 'knife';
 
@@ -92,7 +133,7 @@ export type ViewTransform = {
   offsetY: number;
 };
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
 
 export const DEFAULT_SETTINGS: ProjectSettings = {
   gridSize: 100,
@@ -104,6 +145,10 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   coordinatePrecision: 3,
   circleSegments: 64,
   areaDisplayUnit: 'm2',
+  // Keep legacy/free drawing behaviour unless the user explicitly enables
+  // angular quantisation in project settings.
+  angleSnapEnabled: false,
+  angleSnapIncrementDeg: 15,
 };
 
 export const DEFAULT_STYLE: EntityStyle = {
@@ -111,4 +156,10 @@ export const DEFAULT_STYLE: EntityStyle = {
   stroke: 'var(--cad-stroke)',
   strokeWidth: 1.5,
   opacity: 0.7,
+};
+
+export const DEFAULT_LINE_STYLE: LineStyle = {
+  stroke: 'var(--cad-stroke)',
+  strokeWidth: 1.25,
+  opacity: 0.9,
 };

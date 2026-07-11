@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSvg } from '../persistence/svgExport';
 import { buildAreaCsv, buildVertexCsv } from '../persistence/csvExport';
-import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
+import { createEmptyProject, createLinearEntity, createPolygonEntity } from '../app/projectFactory';
 import { rectangleToRing } from '../geometry/circle';
 import type { Project } from '../app/projectTypes';
 
@@ -28,6 +28,18 @@ describe('svg export', () => {
     const svg = buildSvg(createEmptyProject());
     expect(svg).toContain('<svg');
     expect(svg).not.toContain('<path');
+  });
+
+  it('exports polylines and sampled arcs but omits construction guides', () => {
+    const project = createEmptyProject();
+    project.entities = [
+      createLinearEntity([{ x: 0, y: 0 }, { x: 10, y: 5 }], 'polyline'),
+      createLinearEntity([{ x: 10, y: 5 }, { x: 20, y: 0 }], 'arc'),
+      createLinearEntity([{ x: 0, y: 20 }, { x: 10, y: 20 }], 'guide'),
+    ];
+    const svg = buildSvg(project);
+    expect(svg.match(/<polyline/g)).toHaveLength(2);
+    expect(svg).not.toContain('100000');
   });
 });
 
@@ -74,5 +86,28 @@ describe('csv export', () => {
     // header + 4 outer vertices
     expect(lines).toHaveLength(5);
     expect(lines[1]).toContain('outer');
+  });
+
+  it('lists polyline and arc vertices while omitting guides', () => {
+    const project = createEmptyProject();
+    project.entities = [
+      createLinearEntity([{ x: 0, y: 0 }, { x: 2, y: 3 }], 'polyline', { name: 'Route' }),
+      createLinearEntity([{ x: 3, y: 3 }, { x: 4, y: 5 }], 'arc', { name: 'Curve' }),
+      createLinearEntity([{ x: 0, y: 9 }, { x: 10, y: 9 }], 'guide', { name: 'Helper' }),
+    ];
+    const csv = buildVertexCsv(project);
+    expect(csv).toContain('Route,polyline');
+    expect(csv).toContain('Curve,arc');
+    expect(csv).not.toContain('Helper');
+  });
+
+  it('includes linear lengths in the area summary without inventing an area', () => {
+    const project = createEmptyProject();
+    project.entities = [
+      createLinearEntity([{ x: 0, y: 0 }, { x: 3, y: 4 }], 'polyline', { name: 'Route' }),
+    ];
+    const lines = buildAreaCsv(project).trim().split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe('Route,,5.000,2,0');
   });
 });

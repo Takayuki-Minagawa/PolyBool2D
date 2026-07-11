@@ -4,6 +4,7 @@ import {
   serializeProject,
 } from '../persistence/projectSerializer';
 import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
+import { APP_VERSION } from '../app/projectTypes';
 import { rectangleToRing } from '../geometry/circle';
 
 function validProject() {
@@ -36,28 +37,48 @@ describe('deserializeProject', () => {
     expect(deserializeProject(json)).toBeNull();
   });
 
-  it('rejects entity with missing geometry', () => {
+  it('drops an entity with missing geometry without discarding the project', () => {
     const p = validProject();
     const broken = JSON.parse(serializeProject(p));
     delete broken.entities[0].geometry;
-    expect(deserializeProject(JSON.stringify(broken))).toBeNull();
+    expect(deserializeProject(JSON.stringify(broken))?.entities).toEqual([]);
   });
 
-  it('rejects entity with non-numeric points', () => {
+  it('drops an entity with non-numeric points', () => {
     const p = validProject();
     const broken = JSON.parse(serializeProject(p));
     broken.entities[0].geometry.outer[0] = { x: 'oops', y: 0 };
-    expect(deserializeProject(JSON.stringify(broken))).toBeNull();
+    expect(deserializeProject(JSON.stringify(broken))?.entities).toEqual([]);
   });
 
-  it('rejects ring with fewer than 3 points', () => {
+  it('drops a polygon ring with fewer than 3 points', () => {
     const p = validProject();
     const broken = JSON.parse(serializeProject(p));
     broken.entities[0].geometry.outer = [
       { x: 0, y: 0 },
       { x: 1, y: 0 },
     ];
-    expect(deserializeProject(JSON.stringify(broken))).toBeNull();
+    expect(deserializeProject(JSON.stringify(broken))?.entities).toEqual([]);
+  });
+
+  it('keeps valid entities when a one-point linear entity is corrupt', () => {
+    const mixed = JSON.parse(serializeProject(validProject()));
+    mixed.entities.push({
+      id: 'broken-line',
+      type: 'guide-line',
+      name: 'Broken',
+      kind: 'polyline',
+      layerId: mixed.layers[0].id,
+      points: [{ x: 0, y: 0 }],
+      style: { stroke: '#000000', strokeWidth: 1, opacity: 1 },
+      locked: false,
+      visible: true,
+    });
+
+    const out = deserializeProject(JSON.stringify(mixed));
+
+    expect(out?.entities).toHaveLength(1);
+    expect(out?.entities[0].type).toBe('polygon');
   });
 
   it('rejects when layers array is empty', () => {
@@ -82,6 +103,28 @@ describe('deserializeProject', () => {
     expect(out).not.toBeNull();
     expect(out!.settings.gridSize).toBeGreaterThan(0);
     expect(out!.settings.circleSegments).toBeGreaterThanOrEqual(8);
+  });
+
+  it('migrates 0.1 projects to the current schema version', () => {
+    const legacy = JSON.parse(serializeProject(validProject()));
+    legacy.version = '0.1.0';
+    delete legacy.settings.angleSnapEnabled;
+    delete legacy.settings.angleSnapIncrementDeg;
+
+    const out = deserializeProject(JSON.stringify(legacy));
+
+    expect(out?.version).toBe(APP_VERSION);
+    expect(out?.settings.angleSnapEnabled).toBe(false);
+    expect(out?.settings.angleSnapIncrementDeg).toBeGreaterThan(0);
+  });
+
+  it('sanitizes invalid layer colors from imported JSON', () => {
+    const unsafe = JSON.parse(serializeProject(validProject()));
+    unsafe.layers[0].color = '\"/><script>alert(1)</script>';
+
+    const out = deserializeProject(JSON.stringify(unsafe));
+
+    expect(out?.layers[0].color).toBe('#3a8dde');
   });
 
   it('clamps unsafe precision settings to a renderable range', () => {
