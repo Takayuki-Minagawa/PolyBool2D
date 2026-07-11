@@ -4,6 +4,7 @@ import {
   serializeProject,
 } from '../persistence/projectSerializer';
 import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
+import { APP_VERSION } from '../app/projectTypes';
 import { rectangleToRing } from '../geometry/circle';
 
 function validProject() {
@@ -82,6 +83,28 @@ describe('deserializeProject', () => {
     expect(out).not.toBeNull();
     expect(out!.settings.gridSize).toBeGreaterThan(0);
     expect(out!.settings.circleSegments).toBeGreaterThanOrEqual(8);
+  });
+
+  it('migrates 0.1 projects to the current schema version', () => {
+    const legacy = JSON.parse(serializeProject(validProject()));
+    legacy.version = '0.1.0';
+    delete legacy.settings.angleSnapEnabled;
+    delete legacy.settings.angleSnapIncrementDeg;
+
+    const out = deserializeProject(JSON.stringify(legacy));
+
+    expect(out?.version).toBe(APP_VERSION);
+    expect(out?.settings.angleSnapEnabled).toBe(true);
+    expect(out?.settings.angleSnapIncrementDeg).toBeGreaterThan(0);
+  });
+
+  it('sanitizes invalid layer colors from imported JSON', () => {
+    const unsafe = JSON.parse(serializeProject(validProject()));
+    unsafe.layers[0].color = '\"/><script>alert(1)</script>';
+
+    const out = deserializeProject(JSON.stringify(unsafe));
+
+    expect(out?.layers[0].color).toBe('#3a8dde');
   });
 
   it('clamps unsafe precision settings to a renderable range', () => {

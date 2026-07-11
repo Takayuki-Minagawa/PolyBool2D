@@ -1,5 +1,5 @@
 import type { ViewTransform } from '../projectTypes';
-import { isPolygon } from './helpers';
+import { isEntityEffectivelyLocked, isEntityEffectivelyVisible } from '../layers';
 import type { AppSet, AppState } from './types';
 
 export function createSelectionActions(set: AppSet): Pick<
@@ -27,6 +27,14 @@ export function createSelectionActions(set: AppSet): Pick<
 
     selectEntity: (id, additive) =>
       set((s) => {
+        const entity = s.project.entities.find((item) => item.id === id);
+        if (
+          !entity ||
+          !isEntityEffectivelyVisible(s.project, entity) ||
+          isEntityEffectivelyLocked(s.project, entity)
+        ) {
+          return s;
+        }
         if (!additive) return { selectedEntityIds: [id] };
         if (s.selectedEntityIds.includes(id)) {
           return { selectedEntityIds: s.selectedEntityIds.filter((x) => x !== id) };
@@ -38,7 +46,13 @@ export function createSelectionActions(set: AppSet): Pick<
 
     selectAll: () =>
       set((s) => ({
-        selectedEntityIds: s.project.entities.filter(isPolygon).map((e) => e.id),
+        selectedEntityIds: s.project.entities
+          .filter(
+            (entity) =>
+              isEntityEffectivelyVisible(s.project, entity) &&
+              !isEntityEffectivelyLocked(s.project, entity),
+          )
+          .map((entity) => entity.id),
       })),
 
     clearSelection: () => set({ selectedEntityIds: [] }),

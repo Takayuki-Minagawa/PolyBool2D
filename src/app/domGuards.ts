@@ -6,3 +6,11 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     element?.tagName === 'SELECT'
   );
 }
+
+/** True while keyboard input belongs to a modal dialog or context menu. */
+export function hasBlockingOverlay(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    document.querySelector('[aria-modal="true"], [role="menu"]') !== null
+  );
+}

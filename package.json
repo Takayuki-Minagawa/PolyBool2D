@@ -1,7 +1,7 @@
 {
   "name": "polybool2d",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "2D polygon CAD web app for area calculation (boolean ops, knife split).",
   "scripts": {

@@ -30,6 +30,9 @@
   --cad-snap-color: #ff7a00;
   --cad-preview-color: #58c0ff;
   --cad-knife-color: #d63a3a;
+  --cad-guide-color: #8a63d2;
+  --cad-measure-color: #1b9b72;
+  --cad-invalid-stroke: #e53935;
 
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
@@ -66,6 +69,9 @@
   --cad-snap-color: #ffb066;
   --cad-preview-color: #58c0ff;
   --cad-knife-color: #ff6464;
+  --cad-guide-color: #b99aff;
+  --cad-measure-color: #63d6ad;
+  --cad-invalid-stroke: #ff5f56;
 
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
 }

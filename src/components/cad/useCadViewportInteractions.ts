@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
 import { useAppStore } from '../../app/appStore';
-import { isEditableTarget } from '../../app/domGuards';
-import type { PolygonEntity } from '../../app/projectTypes';
+import { hasBlockingOverlay, isEditableTarget } from '../../app/domGuards';
+import type { Entity, PolygonEntity } from '../../app/projectTypes';
+import { isEntityEffectivelyLocked, isEntityEffectivelyVisible } from '../../app/layers';
 import {
   boundsForEntities,
   defaultView,
@@ -10,11 +11,17 @@ import {
   screenToWorld,
   zoomAtPoint,
 } from '../../app/transform';
-import { snapWorldPoint } from '../../app/snapping';
+import { constrainPointToAngle, snapWorldPoint } from '../../app/snapping';
 import { translatePolygon } from '../../geometry/translate';
-import type { Point, PolygonGeometry } from '../../geometry/types';
+import { pointAtDistance, parseDrawingDistance } from '../../geometry/drawingInput';
+import { arcToPolyline } from '../../geometry/primitives';
+import type { Point } from '../../geometry/types';
 
 const MOVE_THRESHOLD_PX = 3;
+
+function distanceInScreen(a: Point, b: Point, scale: number): number {
+  return Math.hypot(a.x - b.x, a.y - b.y) * scale;
+}
 
 type ViewportSize = {
   width: number;
@@ -23,12 +30,13 @@ type ViewportSize = {
 
 type MoveDrag = {
   startWorld: Point;
-  originals: Map<string, PolygonGeometry>;
+  originals: Map<string, Entity>;
   moved: boolean;
 };
 
 export function useCadViewportInteractions(size: ViewportSize) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [numericInput, setNumericInput] = useState('');
 
   const project = useAppStore((s) => s.project);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
@@ -41,6 +49,9 @@ export function useCadViewportInteractions(size: ViewportSize) {
   const setStatusMessage = useAppStore((s) => s.setStatusMessage);
   const addRectangle = useAppStore((s) => s.addRectangle);
   const addCircle = useAppStore((s) => s.addCircle);
+  const addEllipse = useAppStore((s) => s.addEllipse);
+  const addLinearEntity = useAppStore((s) => s.addLinearEntity);
+  const addHole = useAppStore((s) => s.addHole);
   const addPolygonFromOuter = useAppStore((s) => s.addPolygonFromOuter);
   const selectEntity = useAppStore((s) => s.selectEntity);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -48,7 +59,8 @@ export function useCadViewportInteractions(size: ViewportSize) {
   const setActiveTool = useAppStore((s) => s.setActiveTool);
   const deleteVertex = useAppStore((s) => s.deleteVertex);
   const updateEntityGeometryTransient = useAppStore((s) => s.updateEntityGeometryTransient);
-  const updateEntitiesGeometryTransient = useAppStore((s) => s.updateEntitiesGeometryTransient);
+  const updateEntitiesTransient = useAppStore((s) => s.updateEntitiesTransient);
+  const validateEntity = useAppStore((s) => s.validateEntity);
 
   const isPanningRef = useRef<{ startX: number; startY: number; offX: number; offY: number } | null>(
     null,
@@ -65,22 +77,28 @@ export function useCadViewportInteractions(size: ViewportSize) {
   const pendingSelectRef = useRef<string | null>(null);
   const rectStartRef = useRef<Point | null>(null);
   const circleStartRef = useRef<Point | null>(null);
+  const ellipseStartRef = useRef<Point | null>(null);
+  const guideStartRef = useRef<Point | null>(null);
   const knifeStartRef = useRef<Point | null>(null);
   const shiftKeyRef = useRef(false);
   const spaceKeyRef = useRef(false);
 
   const fitViewToContent = useCallback(() => {
+    const visibleEntities = project.entities.filter((entity) =>
+      isEntityEffectivelyVisible(project, entity),
+    );
+    const selectedVisibleEntities = visibleEntities.filter((entity) =>
+      selectedIds.includes(entity.id),
+    );
     const entities =
-      selectedIds.length > 0
-        ? project.entities.filter((entity) => selectedIds.includes(entity.id))
-        : project.entities;
+      selectedVisibleEntities.length > 0 ? selectedVisibleEntities : visibleEntities;
     const bounds = boundsForEntities(entities);
     setView(
       bounds
         ? fitBoundsToView(bounds, size.width, size.height)
         : defaultView(size.width, size.height),
     );
-  }, [project.entities, selectedIds, setView, size.height, size.width]);
+  }, [project, selectedIds, setView, size.height, size.width]);
 
   const zoomBy = useCallback(
     (factor: number) => {
@@ -95,9 +113,39 @@ export function useCadViewportInteractions(size: ViewportSize) {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
-  function getWorldPoint(screen: Point): Point {
+  function drawingAnchor(): Point | undefined {
+    switch (preview.type) {
+      case 'polygon':
+      case 'hole':
+      case 'polyline':
+      case 'measure':
+        return preview.points.at(-1);
+      case 'rectangle':
+      case 'knife':
+      case 'guide-line':
+        return preview.start;
+      case 'circle':
+      case 'ellipse':
+        return preview.center;
+      case 'arc':
+        return preview.start ?? preview.center;
+      default:
+        return undefined;
+    }
+  }
+
+  function getWorldPoint(screen: Point, anchor = drawingAnchor()): Point {
     const world = screenToWorld(screen, view);
-    return snapEnabled ? snapWorldPoint(world, project, view) : world;
+    const context = {
+      anchor,
+      angleIncrementDeg: project.settings.angleSnapEnabled
+        ? project.settings.angleSnapIncrementDeg
+        : undefined,
+      ortho: shiftKeyRef.current,
+    };
+    return snapEnabled
+      ? snapWorldPoint(world, project, view, context)
+      : constrainPointToAngle(world, context);
   }
 
   function onWheel(e: ReactWheelEvent<SVGSVGElement>) {
@@ -108,7 +156,18 @@ export function useCadViewportInteractions(size: ViewportSize) {
   }
 
   function onPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (e.button === 1 || tool === 'pan' || spaceKeyRef.current) {
+    if (e.button === 1) {
+      isPanningRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        offX: view.offsetX,
+        offY: view.offsetY,
+      };
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (e.button !== 0) return;
+    if (tool === 'pan' || spaceKeyRef.current) {
       isPanningRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -120,6 +179,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     }
     const screen = getMousePoint(e);
     const w = getWorldPoint(screen);
+    setNumericInput('');
 
     if (tool === 'rectangle') {
       rectStartRef.current = w;
@@ -133,33 +193,95 @@ export function useCadViewportInteractions(size: ViewportSize) {
       (e.target as Element).setPointerCapture?.(e.pointerId);
       return;
     }
+    if (tool === 'ellipse') {
+      ellipseStartRef.current = w;
+      setPreview({ type: 'ellipse', center: w, cursor: w });
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (tool === 'guide-line') {
+      guideStartRef.current = w;
+      setPreview({ type: 'guide-line', start: w, cursor: w });
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
     if (tool === 'knife') {
       knifeStartRef.current = w;
       setPreview({ type: 'knife', start: w, cursor: w });
       (e.target as Element).setPointerCapture?.(e.pointerId);
       return;
     }
-    if (tool === 'polygon') {
-      if (preview.type !== 'polygon') {
-        setPreview({ type: 'polygon', points: [w], cursor: null });
-      } else {
-        const pts = [...preview.points];
-        if (pts.length >= 3) {
-          const first = pts[0];
-          const dx = first.x - w.x;
-          const dy = first.y - w.y;
-          if (Math.sqrt(dx * dx + dy * dy) * view.scale < 8) {
-            const created = addPolygonFromOuter(pts, {
-              sourceShape: 'polygon',
-              createdByOperation: 'draw',
-            });
-            setPreview({ type: 'none' });
-            if (created) setActiveTool('select');
-            return;
-          }
+    if (tool === 'hole') {
+      if (preview.type !== 'hole') {
+        const target = project.entities.find(
+          (entity) => entity.id === selectedIds[0] && entity.type === 'polygon',
+        );
+        if (!target || selectedIds.length !== 1) {
+          useAppStore.getState().setErrorMessage('errors.holeNeedsTarget');
+          return;
         }
-        pts.push(w);
-        setPreview({ type: 'polygon', points: pts, cursor: null });
+        setPreview({ type: 'hole', entityId: target.id, points: [w], cursor: null });
+      } else {
+        const points = [...preview.points];
+        if (points.length >= 3 && distanceInScreen(points[0], w, view.scale) < 8) {
+          const created = addHole(preview.entityId, points);
+          setPreview({ type: 'none' });
+          if (created) setActiveTool('select');
+          return;
+        }
+        setPreview({ ...preview, points: [...points, w], cursor: null });
+      }
+      return;
+    }
+    if (tool === 'polygon' || tool === 'polyline') {
+      if (preview.type !== tool) {
+        setPreview(
+          tool === 'polygon'
+            ? { type: 'polygon', points: [w], cursor: null }
+            : { type: 'polyline', points: [w], cursor: null },
+        );
+      } else {
+        const points = [...preview.points];
+        if (
+          tool === 'polygon' &&
+          points.length >= 3 &&
+          distanceInScreen(points[0], w, view.scale) < 8
+        ) {
+          const created = addPolygonFromOuter(points, {
+            sourceShape: 'polygon',
+            createdByOperation: 'draw',
+          });
+          setPreview({ type: 'none' });
+          if (created) setActiveTool('select');
+          return;
+        }
+        setPreview({ ...preview, points: [...points, w], cursor: null });
+      }
+      return;
+    }
+    if (tool === 'arc') {
+      if (preview.type !== 'arc') {
+        setPreview({ type: 'arc', center: w, start: null, cursor: w });
+      } else if (!preview.start) {
+        setPreview({ ...preview, start: w, cursor: w });
+      } else {
+        const points = arcToPolyline(
+          preview.center,
+          preview.start,
+          w,
+          project.settings.circleSegments,
+        );
+        const created = addLinearEntity(points, 'arc');
+        setPreview({ type: 'none' });
+        if (created) setActiveTool('select');
+      }
+      return;
+    }
+    if (tool === 'measure') {
+      if (preview.type !== 'measure') {
+        setPreview({ type: 'measure', points: [w], cursor: null });
+      } else {
+        setPreview({ type: 'measure', points: [...preview.points, w], cursor: null });
       }
       return;
     }
@@ -193,11 +315,22 @@ export function useCadViewportInteractions(size: ViewportSize) {
         useAppStore.getState().pushHistory();
         drag.moved = true;
       }
-      const updates = new Map<string, PolygonGeometry>();
+      const updates = new Map<string, Entity>();
       for (const [id, original] of drag.originals) {
-        updates.set(id, translatePolygon(original, dx, dy));
+        updates.set(
+          id,
+          original.type === 'polygon'
+            ? { ...original, geometry: translatePolygon(original.geometry, dx, dy) }
+            : {
+                ...original,
+                points: original.points.map((point) => ({
+                  x: point.x + dx,
+                  y: point.y + dy,
+                })),
+              },
+        );
       }
-      updateEntitiesGeometryTransient(updates);
+      updateEntitiesTransient(updates);
       return;
     }
     if (draggingVertexRef.current) {
@@ -239,12 +372,29 @@ export function useCadViewportInteractions(size: ViewportSize) {
       setPreview({ type: 'circle', center: circleStartRef.current, cursor: w });
       return;
     }
+    if (ellipseStartRef.current && tool === 'ellipse' && preview.type === 'ellipse') {
+      setPreview({ type: 'ellipse', center: ellipseStartRef.current, cursor: w });
+      return;
+    }
+    if (guideStartRef.current && tool === 'guide-line' && preview.type === 'guide-line') {
+      setPreview({ type: 'guide-line', start: guideStartRef.current, cursor: w });
+      return;
+    }
     if (knifeStartRef.current && tool === 'knife' && preview.type === 'knife') {
       setPreview({ type: 'knife', start: knifeStartRef.current, cursor: w });
       return;
     }
-    if (tool === 'polygon' && preview.type === 'polygon') {
-      setPreview({ type: 'polygon', points: preview.points, cursor: w });
+    if (
+      (tool === 'polygon' && preview.type === 'polygon') ||
+      (tool === 'polyline' && preview.type === 'polyline') ||
+      (tool === 'hole' && preview.type === 'hole') ||
+      (tool === 'measure' && preview.type === 'measure')
+    ) {
+      setPreview({ ...preview, cursor: w });
+      return;
+    }
+    if (tool === 'arc' && preview.type === 'arc') {
+      setPreview({ ...preview, cursor: w });
     }
   }
 
@@ -253,6 +403,12 @@ export function useCadViewportInteractions(size: ViewportSize) {
     moveDragRef.current = null;
     pendingSelectRef.current = null;
     draggingVertexRef.current = null;
+    rectStartRef.current = null;
+    circleStartRef.current = null;
+    ellipseStartRef.current = null;
+    guideStartRef.current = null;
+    knifeStartRef.current = null;
+    setNumericInput('');
   }
 
   function onPointerUp(e: ReactPointerEvent<SVGSVGElement>) {
@@ -271,7 +427,9 @@ export function useCadViewportInteractions(size: ViewportSize) {
       return;
     }
     if (draggingVertexRef.current) {
+      const drag = draggingVertexRef.current;
       draggingVertexRef.current = null;
+      if (drag.moved) validateEntity(drag.entityId);
       return;
     }
     const screen = getMousePoint(e);
@@ -308,6 +466,26 @@ export function useCadViewportInteractions(size: ViewportSize) {
       setPreview({ type: 'none' });
       return;
     }
+    if (ellipseStartRef.current && tool === 'ellipse') {
+      const center = ellipseStartRef.current;
+      const radiusX = Math.abs(w.x - center.x);
+      const radiusY = Math.abs(w.y - center.y);
+      if (radiusX > 0 && radiusY > 0) {
+        const created = addEllipse(center, radiusX, radiusY);
+        if (created) setActiveTool('select');
+      }
+      ellipseStartRef.current = null;
+      setPreview({ type: 'none' });
+      return;
+    }
+    if (guideStartRef.current && tool === 'guide-line') {
+      const start = guideStartRef.current;
+      guideStartRef.current = null;
+      setPreview({ type: 'none' });
+      const created = addLinearEntity([start, w], 'guide');
+      if (created) setActiveTool('select');
+      return;
+    }
     if (knifeStartRef.current && tool === 'knife') {
       const start = knifeStartRef.current;
       knifeStartRef.current = null;
@@ -323,6 +501,15 @@ export function useCadViewportInteractions(size: ViewportSize) {
   }
 
   function onShapePointerDown(entityId: string, e: ReactPointerEvent) {
+    if (e.button !== 0) return;
+    const entity = useAppStore.getState().project.entities.find((item) => item.id === entityId);
+    if (
+      !entity ||
+      !isEntityEffectivelyVisible(useAppStore.getState().project, entity) ||
+      isEntityEffectivelyLocked(useAppStore.getState().project, entity)
+    ) {
+      return;
+    }
     if (tool === 'select') {
       if (e.button !== 0 || spaceKeyRef.current) return;
       e.stopPropagation();
@@ -336,10 +523,13 @@ export function useCadViewportInteractions(size: ViewportSize) {
       if (!alreadySelected) selectEntity(entityId, false);
       pendingSelectRef.current = alreadySelected ? entityId : null;
 
-      const originals = new Map<string, PolygonGeometry>();
+      const originals = new Map<string, Entity>();
       for (const ent of state.project.entities) {
-        if (ent.type === 'polygon' && ids.includes(ent.id)) {
-          originals.set(ent.id, ent.geometry);
+        if (
+          ids.includes(ent.id) &&
+          !isEntityEffectivelyLocked(state.project, ent)
+        ) {
+          originals.set(ent.id, ent);
         }
       }
       moveDragRef.current = {
@@ -364,6 +554,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     vertexIndex: number,
     e: ReactPointerEvent<SVGCircleElement>,
   ) {
+    if (e.button !== 0) return;
     if (tool !== 'select' && tool !== 'vertex-edit') return;
     e.stopPropagation();
     if (e.altKey) {
@@ -382,12 +573,119 @@ export function useCadViewportInteractions(size: ViewportSize) {
   }
 
   useEffect(() => {
+    function finishPointSequence() {
+      const state = useAppStore.getState();
+      const p = state.preview;
+      if (p.type === 'polygon' && p.points.length >= 3) {
+        const created = state.addPolygonFromOuter(p.points, {
+          sourceShape: 'polygon',
+          createdByOperation: 'draw',
+        });
+        state.setPreview({ type: 'none' });
+        if (created) state.setActiveTool('select');
+      } else if (p.type === 'hole' && p.points.length >= 3) {
+        const created = state.addHole(p.entityId, p.points);
+        state.setPreview({ type: 'none' });
+        if (created) state.setActiveTool('select');
+      } else if (p.type === 'polyline' && p.points.length >= 2) {
+        const created = state.addLinearEntity(p.points, 'polyline');
+        state.setPreview({ type: 'none' });
+        if (created) state.setActiveTool('select');
+      } else if (p.type === 'measure') {
+        state.setPreview({ type: 'none' });
+      }
+    }
+
+    function commitNumericDistance(distanceValue: number): boolean {
+      const state = useAppStore.getState();
+      const p = state.preview;
+      if (
+        (p.type === 'polygon' ||
+          p.type === 'hole' ||
+          p.type === 'polyline' ||
+          p.type === 'measure') &&
+        p.cursor
+      ) {
+        const anchor = p.points.at(-1);
+        const point = anchor ? pointAtDistance(anchor, p.cursor, distanceValue) : null;
+        if (!point) return false;
+        state.setPreview({ ...p, points: [...p.points, point], cursor: null });
+        return true;
+      }
+      if (p.type === 'circle') {
+        const direction = pointAtDistance(p.center, p.cursor, distanceValue);
+        if (!direction) return false;
+        const created = state.addCircle(p.center, distanceValue);
+        state.setPreview({ type: 'none' });
+        circleStartRef.current = null;
+        if (created) state.setActiveTool('select');
+        return created !== null;
+      }
+      if (p.type === 'guide-line') {
+        const end = pointAtDistance(p.start, p.cursor, distanceValue);
+        if (!end) return false;
+        const created = state.addLinearEntity([p.start, end], 'guide');
+        state.setPreview({ type: 'none' });
+        guideStartRef.current = null;
+        if (created) state.setActiveTool('select');
+        return created !== null;
+      }
+      if (p.type === 'knife') {
+        const end = pointAtDistance(p.start, p.cursor, distanceValue);
+        const target = state.selectedEntityIds[0];
+        if (!end || !target) return false;
+        const ok = state.knifeSelected(target, p.start, end);
+        state.setPreview({ type: 'none' });
+        knifeStartRef.current = null;
+        if (ok) state.setActiveTool('select');
+        return ok;
+      }
+      return false;
+    }
+
     function onKeyDown(e: KeyboardEvent) {
       const isTyping = isEditableTarget(e.target);
+      if (isTyping || hasBlockingOverlay()) return;
       if (e.key === 'Shift') shiftKeyRef.current = true;
-      if (!isTyping && e.key === ' ') spaceKeyRef.current = true;
+      if (e.key === ' ') spaceKeyRef.current = true;
+      const drawing = useAppStore.getState().preview.type !== 'none';
       if (
-        !isTyping &&
+        drawing &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        (/^[0-9]$/.test(e.key) || e.key === '.' || e.key === ',')
+      ) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setNumericInput((current) => {
+          const key = e.key === ',' ? '.' : e.key;
+          if (key === '.' && current.includes('.')) return current;
+          return `${current}${key}`;
+        });
+        return;
+      }
+      if (drawing && e.key === 'Backspace') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (numericInput) {
+          setNumericInput((current) => current.slice(0, -1));
+        } else {
+          const state = useAppStore.getState();
+          const current = state.preview;
+          if (
+            current.type === 'polygon' ||
+            current.type === 'hole' ||
+            current.type === 'polyline' ||
+            current.type === 'measure'
+          ) {
+            if (current.points.length <= 1) state.setPreview({ type: 'none' });
+            else state.setPreview({ ...current, points: current.points.slice(0, -1), cursor: null });
+          }
+        }
+        return;
+      }
+      if (
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey &&
@@ -397,21 +695,24 @@ export function useCadViewportInteractions(size: ViewportSize) {
         fitViewToContent();
       }
       if (e.key === 'Escape') {
+        setNumericInput('');
         setPreview({ type: 'none' });
         rectStartRef.current = null;
         circleStartRef.current = null;
+        ellipseStartRef.current = null;
+        guideStartRef.current = null;
         knifeStartRef.current = null;
       }
       if (e.key === 'Enter') {
-        const p = useAppStore.getState().preview;
-        if (p.type === 'polygon' && p.points.length >= 3) {
-          addPolygonFromOuter(p.points, {
-            sourceShape: 'polygon',
-            createdByOperation: 'draw',
-          });
-          setPreview({ type: 'none' });
-          setActiveTool('select');
+        if (numericInput) {
+          const distanceValue = parseDrawingDistance(numericInput);
+          if (distanceValue && commitNumericDistance(distanceValue)) {
+            e.preventDefault();
+            setNumericInput('');
+            return;
+          }
         }
+        finishPointSequence();
       }
     }
     function onKeyUp(e: KeyboardEvent) {
@@ -424,7 +725,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [addPolygonFromOuter, fitViewToContent, setActiveTool, setPreview]);
+  }, [fitViewToContent, numericInput, setPreview]);
 
   return {
     svgRef,
@@ -437,6 +738,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     onPointerCancel,
     onShapePointerDown,
     onVertexPointerDown,
+    numericInput,
     cursor: isPanningRef.current || tool === 'pan' || spaceKeyRef.current ? 'grabbing' : 'crosshair',
   };
 }

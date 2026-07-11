@@ -12,6 +12,10 @@ import {
   scalePolygon,
 } from '../../geometry/transform2d';
 import { deleteVertexFromRing, insertVertexInRing } from '../../geometry/vertexEdit';
+import { offsetPolygon } from '../../geometry/offset';
+import { repairPolygon } from '../../geometry/repair';
+import { chamferPolygon, filletPolygon } from '../../geometry/corner';
+import { minimumAreaBoundingRectangle } from '../../geometry/minimumBoundingRectangle';
 import type { Point, PolygonGeometry } from '../../geometry/types';
 import { boundsForEntities } from '../transform';
 import { createPolygonEntity } from '../projectFactory';
@@ -45,6 +49,11 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
   | 'distributeSelected'
   | 'insertVertex'
   | 'deleteVertex'
+  | 'offsetSelected'
+  | 'repairSelected'
+  | 'chamferSelected'
+  | 'filletSelected'
+  | 'minimumBoundingRectangleSelected'
 > {
   function replaceEntitiesWithHistory(removeIds: string[], added: PolygonEntity[]) {
     get().pushHistory();
@@ -73,7 +82,10 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         layerId: polys[0].layerId,
       }),
     );
-    replaceEntitiesWithHistory(selectedEntityIds, newEntities);
+    replaceEntitiesWithHistory(
+      polys.map((polygon) => polygon.id),
+      newEntities,
+    );
   }
 
   function transformSelected(fn: (geom: PolygonGeometry, pivot: Point) => PolygonGeometry) {
@@ -133,7 +145,10 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
           layerId: subject.layerId,
         }),
       );
-      replaceEntitiesWithHistory([subjectId, ...cutterIds], newEntities);
+      replaceEntitiesWithHistory(
+        [subject.id, ...cutters.map((cutter) => cutter.id)],
+        newEntities,
+      );
     },
 
     knifeSelected: (entityId, start, end) => {
@@ -199,7 +214,10 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
           metadata: { sourceShape: 'polygon', createdByOperation: 'draw' },
         },
       );
-      replaceEntitiesWithHistory(selectedEntityIds, [created]);
+      replaceEntitiesWithHistory(
+        polys.map((polygon) => polygon.id),
+        [created],
+      );
     },
 
     simplifySelected: (tolerance) => {
@@ -308,6 +326,179 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         return;
       }
       if (geom) get().updateEntityGeometry(ref.entityId, geom);
+    },
+
+    offsetSelected: (distance) => {
+      if (!Number.isFinite(distance) || distance === 0) {
+        get().setErrorMessage('errors.invalidOffset');
+        return;
+      }
+      const { project, selectedEntityIds } = get();
+      const polygons = polygonsByIds(project, selectedEntityIds);
+      if (polygons.length === 0) return;
+      const created = polygons.flatMap((polygon) =>
+        offsetPolygon(polygon.geometry, distance, {
+          arcSegments: project.settings.circleSegments,
+        }).map((geometry, index) =>
+          createPolygonEntity(geometry, {
+            name: `${polygon.name} offset${index > 0 ? ` ${index + 1}` : ''}`,
+            layerId: polygon.layerId,
+            metadata: {
+              sourceShape: 'offset-result',
+              createdByOperation: 'offset',
+            },
+          }),
+        ),
+      );
+      if (created.length === 0) {
+        get().setErrorMessage('errors.emptyResult');
+        return;
+      }
+      get().pushHistory();
+      set((state) => ({
+        project: touchProject(state.project, [...state.project.entities, ...created]),
+        selectedEntityIds: created.map((entity) => entity.id),
+      }));
+    },
+
+    repairSelected: () => {
+      const { project, selectedEntityIds } = get();
+      const polygons = polygonsByIds(project, selectedEntityIds);
+      if (polygons.length === 0) return;
+      const repaired: PolygonEntity[] = [];
+      const repairedSourceIds: string[] = [];
+      const failedSourceIds: string[] = [];
+      for (const polygon of polygons) {
+        const geometries = repairPolygon(polygon.geometry);
+        if (geometries.length === 0) {
+          failedSourceIds.push(polygon.id);
+          continue;
+        }
+        repairedSourceIds.push(polygon.id);
+        repaired.push(
+          ...geometries.map((geometry, index) =>
+            createPolygonEntity(geometry, {
+              name: `${polygon.name}${index > 0 ? ` ${index + 1}` : ''}`,
+              layerId: polygon.layerId,
+              metadata: {
+                sourceShape: polygon.metadata?.sourceShape ?? 'polygon',
+                createdByOperation: 'repair',
+              },
+            }),
+          ),
+        );
+      }
+      if (repaired.length === 0) {
+        get().setErrorMessage('errors.repairFailed');
+        return;
+      }
+      const removed = new Set(repairedSourceIds);
+      get().pushHistory();
+      set((state) => ({
+        project: replaceEntities(state.project, repairedSourceIds, repaired),
+        selectedEntityIds: [
+          ...state.selectedEntityIds.filter((id) => !removed.has(id)),
+          ...repaired.map((entity) => entity.id),
+        ],
+        ui: {
+          ...state.ui,
+          errorMessage:
+            failedSourceIds.length > 0
+              ? 'errors.repairFailed'
+              : state.ui.errorMessage,
+          invalidEntityIds: state.ui.invalidEntityIds.filter(
+            (id) => !removed.has(id),
+          ),
+        },
+      }));
+    },
+
+    chamferSelected: (distance) => {
+      if (!Number.isFinite(distance) || distance <= 0) {
+        get().setErrorMessage('errors.invalidCorner');
+        return;
+      }
+      const { project, selectedEntityIds } = get();
+      const selected = new Set(selectedEntityIds);
+      let changed = false;
+      const entities = project.entities.map((entity) => {
+        if (!isPolygon(entity) || !selected.has(entity.id)) return entity;
+        const geometry = chamferPolygon(entity.geometry, distance);
+        if (!geometry) return entity;
+        changed = true;
+        return {
+          ...entity,
+          geometry,
+          metadata: {
+            sourceShape: 'corner-result' as const,
+            createdByOperation: 'chamfer' as const,
+          },
+        };
+      });
+      if (!changed) {
+        get().setErrorMessage('errors.invalidCorner');
+        return;
+      }
+      get().pushHistory();
+      set((state) => ({ project: touchProject(state.project, entities) }));
+    },
+
+    filletSelected: (radius, segments = 4) => {
+      if (!Number.isFinite(radius) || radius <= 0) {
+        get().setErrorMessage('errors.invalidCorner');
+        return;
+      }
+      const { project, selectedEntityIds } = get();
+      const selected = new Set(selectedEntityIds);
+      let changed = false;
+      const entities = project.entities.map((entity) => {
+        if (!isPolygon(entity) || !selected.has(entity.id)) return entity;
+        const geometry = filletPolygon(entity.geometry, radius, {
+          segmentsPerQuarter: segments,
+        });
+        if (!geometry) return entity;
+        changed = true;
+        return {
+          ...entity,
+          geometry,
+          metadata: {
+            sourceShape: 'corner-result' as const,
+            createdByOperation: 'fillet' as const,
+          },
+        };
+      });
+      if (!changed) {
+        get().setErrorMessage('errors.invalidCorner');
+        return;
+      }
+      get().pushHistory();
+      set((state) => ({ project: touchProject(state.project, entities) }));
+    },
+
+    minimumBoundingRectangleSelected: () => {
+      const { project, selectedEntityIds } = get();
+      const polygons = polygonsByIds(project, selectedEntityIds);
+      const rectangle = minimumAreaBoundingRectangle(collectPolygonPoints(polygons));
+      if (!rectangle) {
+        get().setErrorMessage('errors.boundingRectangleFailed');
+        return;
+      }
+      const entity = createPolygonEntity(
+        { outer: rectangle.corners, holes: [] },
+        {
+          name: 'Minimum bounding rectangle',
+          layerId: polygons[0].layerId,
+          metadata: {
+            sourceShape: 'bounding-rectangle',
+            createdByOperation: 'minimum-bounds',
+          },
+        },
+      );
+      get().pushHistory();
+      set((state) => ({
+        project: touchProject(state.project, [...state.project.entities, entity]),
+        selectedEntityIds: [entity.id],
+      }));
     },
   };
 }

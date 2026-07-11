@@ -11,15 +11,29 @@ import { formatArea, formatLength } from '../../app/units';
 import type { PolygonEntity, Project } from '../../app/projectTypes';
 import { BooleanActions } from './BooleanActions';
 import {
+  EntityOutlinerSection,
+  LayerManagerSection,
+} from './LayerOutlinerSections';
+import {
   ArrangeSection,
   GeometryOpsSection,
   SettingsSection,
   TransformSection,
   VertexTable,
 } from './PropertyPanelSections';
+import { AdvancedGeometrySection } from './AdvancedGeometrySection';
 
 function polygonEntities(project: Project): PolygonEntity[] {
   return project.entities.filter((e): e is PolygonEntity => e.type === 'polygon');
+}
+
+function ManagementSections() {
+  return (
+    <>
+      <LayerManagerSection />
+      <EntityOutlinerSection />
+    </>
+  );
 }
 
 export function PropertyPanel() {
@@ -44,7 +58,7 @@ export function PropertyPanel() {
           <h2>{t('panel.noSelection')}</h2>
           <div className="row">
             <span className="label">{t('panel.entityCount')}</span>
-            <span>{polys.length}</span>
+            <span>{project.entities.length}</span>
           </div>
           <div className="row">
             <span className="label">{t('panel.totalArea')}</span>
@@ -52,14 +66,44 @@ export function PropertyPanel() {
           </div>
         </section>
 
+        <ManagementSections />
         <SettingsSection />
       </aside>
     );
   }
 
   if (selectedIds.length === 1) {
-    const ent = polys.find((p) => p.id === selectedIds[0]);
-    if (!ent) return null;
+    const selectedEntity = project.entities.find((entity) => entity.id === selectedIds[0]);
+    if (!selectedEntity) {
+      return (
+        <aside className="panel">
+          <ManagementSections />
+          <SettingsSection />
+        </aside>
+      );
+    }
+    if (selectedEntity.type !== 'polygon') {
+      return (
+        <aside className="panel">
+          <section>
+            <h2>{t('panel.linearEntity')}</h2>
+            <div className="row">
+              <span>{selectedEntity.name}</span>
+              <span className="muted-text">{selectedEntity.kind}</span>
+            </div>
+            <button
+              onClick={() => removeEntities([selectedEntity.id])}
+              className="panel-action"
+            >
+              {t('panel.delete')}
+            </button>
+          </section>
+          <ManagementSections />
+          <SettingsSection />
+        </aside>
+      );
+    }
+    const ent = selectedEntity;
     const outerArea = Math.abs(signedRingArea(ent.geometry.outer));
     const holeArea = ent.geometry.holes.reduce(
       (a, h) => a + Math.abs(signedRingArea(h)),
@@ -120,8 +164,10 @@ export function PropertyPanel() {
           </button>
         </section>
 
+        <ManagementSections />
         <TransformSection />
         <GeometryOpsSection />
+        <AdvancedGeometrySection />
         <VertexTable ent={ent} coordDecimals={coordDecimals} />
         <SettingsSection />
       </aside>
@@ -135,7 +181,7 @@ export function PropertyPanel() {
       <section>
         <h2>{t('panel.selectedCount')}</h2>
         <div className="row">
-          <span>{selectedEnts.length}</span>
+          <span>{selectedIds.length}</span>
         </div>
         <div className="row">
           <span className="label">{t('panel.totalArea')}</span>
@@ -149,9 +195,15 @@ export function PropertyPanel() {
         </div>
       </section>
 
-      <TransformSection />
-      <GeometryOpsSection />
-      <ArrangeSection />
+      <ManagementSections />
+      {selectedEnts.length > 0 && (
+        <>
+          <TransformSection />
+          <GeometryOpsSection />
+          <AdvancedGeometrySection />
+          <ArrangeSection />
+        </>
+      )}
       <SettingsSection />
     </aside>
   );

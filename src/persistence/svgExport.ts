@@ -1,7 +1,8 @@
-import type { Project } from '../app/projectTypes';
+import type { PolygonEntity, Project } from '../app/projectTypes';
 import type { PolygonGeometry, Ring } from '../geometry/types';
 import { boundsForEntities } from '../app/transform';
 import { downloadText, timestamp } from './download';
+import { isEntityEffectivelyVisible, layerForEntity } from '../app/layers';
 
 const PADDING = 16;
 const FILL = '#3a8dde';
@@ -21,6 +22,14 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(4).replace(/\.?0+$/, '');
 }
 
+function xmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function polygonToPath(geom: PolygonGeometry, flipY: (y: number) => number): string {
   return [geom.outer, ...geom.holes].map((r) => ringToPath(r, flipY)).join(' ');
 }
@@ -30,8 +39,11 @@ function polygonToPath(geom: PolygonGeometry, flipY: (y: number) => number): str
  * World Y is up; SVG Y is down, so Y is flipped about the content bounds.
  */
 export function buildSvg(project: Project): string {
-  const polygons = project.entities.filter((e) => e.type === 'polygon');
-  const bounds = boundsForEntities(project.entities) ?? {
+  const polygons = project.entities.filter(
+    (entity): entity is PolygonEntity =>
+      entity.type === 'polygon' && isEntityEffectivelyVisible(project, entity),
+  );
+  const bounds = boundsForEntities(polygons) ?? {
     minX: 0,
     minY: 0,
     maxX: 100,
@@ -50,7 +62,8 @@ export function buildSvg(project: Project): string {
         holes: e.geometry.holes.map((h) => h.map((p) => ({ x: shiftX(p.x), y: p.y }))),
       };
       const d = polygonToPath(shifted, flipY);
-      return `  <path d="${d}" fill="${FILL}" fill-opacity="0.7" fill-rule="evenodd" stroke="${STROKE}" stroke-width="1" />`;
+      const color = layerForEntity(project, e)?.color ?? STROKE;
+      return `  <path d="${xmlAttribute(d)}" fill="${xmlAttribute(color || FILL)}" fill-opacity="${Math.max(0, Math.min(1, e.style.opacity * 0.28))}" fill-rule="evenodd" stroke="${xmlAttribute(color)}" stroke-width="${fmt(e.style.strokeWidth)}" />`;
     })
     .join('\n');
 

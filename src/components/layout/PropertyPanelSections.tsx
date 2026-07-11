@@ -1,26 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import { AREA_UNITS, AREA_UNIT_LABEL } from '../../app/units';
-import type { AreaUnit, PolygonEntity } from '../../app/projectTypes';
+import type { AreaUnit, PolygonEntity, Unit } from '../../app/projectTypes';
 import { defaultEngine } from '../../geometry/geometryEngine';
 import { lerpPoint } from '../../geometry/numeric';
+import type { Ring } from '../../geometry/types';
 
 type VertexInputProps = {
   value: number;
   decimals: number;
+  label: string;
   onCommit: (v: number) => void;
 };
 
-function VertexInput({ value, decimals, onCommit }: VertexInputProps) {
+function VertexInput({ value, decimals, label, onCommit }: VertexInputProps) {
   const [text, setText] = useState(value.toFixed(decimals));
-  const lastValueRef = useRef(value);
 
   useEffect(() => {
-    if (lastValueRef.current !== value) {
-      lastValueRef.current = value;
-      setText(value.toFixed(decimals));
-    }
+    setText(value.toFixed(decimals));
   }, [value, decimals]);
 
   function commit() {
@@ -34,6 +32,7 @@ function VertexInput({ value, decimals, onCommit }: VertexInputProps) {
 
   return (
     <input
+      aria-label={label}
       type="number"
       step="any"
       value={text}
@@ -51,11 +50,84 @@ function VertexInput({ value, decimals, onCommit }: VertexInputProps) {
   );
 }
 
+type SettingsNumberInputProps = {
+  value: number;
+  min: number;
+  max: number;
+  integer?: boolean;
+  label: string;
+  onCommit: (value: number) => void;
+};
+
+function SettingsNumberInput({
+  value,
+  min,
+  max,
+  integer = false,
+  label,
+  onCommit,
+}: SettingsNumberInputProps) {
+  const [text, setText] = useState(String(value));
+
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  function reset() {
+    setText(String(value));
+  }
+
+  function commit() {
+    const parsed = Number(text);
+    const next = integer ? Math.round(parsed) : parsed;
+    if (!Number.isFinite(next) || next < min || next > max) {
+      reset();
+      return;
+    }
+    if (next !== value) onCommit(next);
+    setText(String(next));
+  }
+
+  return (
+    <input
+      aria-label={label}
+      type="number"
+      value={text}
+      min={min}
+      max={max}
+      step={integer ? 1 : 'any'}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          reset();
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 export function TransformSection() {
   const { t } = useTranslation();
   const rotateSelected = useAppStore((s) => s.rotateSelected);
   const mirrorSelected = useAppStore((s) => s.mirrorSelected);
   const scaleSelected = useAppStore((s) => s.scaleSelected);
+  const [angleText, setAngleText] = useState('45');
+  const [scaleXText, setScaleXText] = useState('1');
+  const [scaleYText, setScaleYText] = useState('1');
+  const angleDeg = Number(angleText);
+  const scaleX = Number(scaleXText);
+  const scaleY = Number(scaleYText);
+  const canRotate = Number.isFinite(angleDeg) && angleDeg !== 0;
+  const canScale =
+    Number.isFinite(scaleX) &&
+    Number.isFinite(scaleY) &&
+    scaleX !== 0 &&
+    scaleY !== 0;
+
   return (
     <section>
       <h2>{t('panel.transformHeading')}</h2>
@@ -67,6 +139,48 @@ export function TransformSection() {
         <button onClick={() => scaleSelected(0.5, 0.5)}>{t('panel.scaleHalf')}</button>
         <button onClick={() => scaleSelected(2, 2)}>{t('panel.scaleDouble')}</button>
       </div>
+      <form
+        className="transform-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canRotate) rotateSelected((angleDeg * Math.PI) / 180);
+        }}
+      >
+        <label htmlFor="transform-angle">{t('panel.rotateAngle')}</label>
+        <input
+          id="transform-angle"
+          type="number"
+          step="any"
+          value={angleText}
+          onChange={(event) => setAngleText(event.target.value)}
+        />
+        <button type="submit" disabled={!canRotate}>{t('panel.apply')}</button>
+      </form>
+      <form
+        className="transform-form transform-scale-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canScale) scaleSelected(scaleX, scaleY);
+        }}
+      >
+        <label htmlFor="transform-scale-x">{t('panel.scaleX')}</label>
+        <input
+          id="transform-scale-x"
+          type="number"
+          step="any"
+          value={scaleXText}
+          onChange={(event) => setScaleXText(event.target.value)}
+        />
+        <label htmlFor="transform-scale-y">{t('panel.scaleY')}</label>
+        <input
+          id="transform-scale-y"
+          type="number"
+          step="any"
+          value={scaleYText}
+          onChange={(event) => setScaleYText(event.target.value)}
+        />
+        <button type="submit" disabled={!canScale}>{t('panel.apply')}</button>
+      </form>
     </section>
   );
 }
@@ -117,18 +231,55 @@ export function VertexTable({ ent, coordDecimals }: { ent: PolygonEntity; coordD
   const updateEntityGeometry = useAppStore((s) => s.updateEntityGeometry);
   const insertVertex = useAppStore((s) => s.insertVertex);
   const deleteVertex = useAppStore((s) => s.deleteVertex);
+  const removeHole = useAppStore((s) => s.removeHole);
 
-  const commitOuterVertex = (index: number, axis: 'x' | 'y', v: number) => {
-    const outer = ent.geometry.outer.map((pp, idx) =>
-      idx === index ? { ...pp, [axis]: v } : pp,
-    );
-    const next = defaultEngine.normalize([{ outer, holes: ent.geometry.holes }])[0];
+  const commitVertex = (
+    ringType: 'outer' | 'hole',
+    holeIndex: number | undefined,
+    index: number,
+    axis: 'x' | 'y',
+    value: number,
+  ) => {
+    const nextGeometry = ringType === 'outer'
+      ? {
+          outer: ent.geometry.outer.map((point, pointIndex) =>
+            pointIndex === index ? { ...point, [axis]: value } : point,
+          ),
+          holes: ent.geometry.holes,
+        }
+      : {
+          outer: ent.geometry.outer,
+          holes: ent.geometry.holes.map((hole, currentHoleIndex) =>
+            currentHoleIndex === holeIndex
+              ? hole.map((point, pointIndex) =>
+                  pointIndex === index ? { ...point, [axis]: value } : point,
+                )
+              : hole,
+          ),
+        };
+    const next = defaultEngine.normalize([nextGeometry])[0];
     if (next) updateEntityGeometry(ent.id, next);
   };
 
-  return (
-    <section>
-      <h2>{t('panel.vertexEditHeading')}</h2>
+  const renderRing = (
+    ring: Ring,
+    ringType: 'outer' | 'hole',
+    ringLabel: string,
+    holeIndex?: number,
+  ) => (
+    <div className="vertex-ring-block" key={`${ringType}-${holeIndex ?? 'outer'}`}>
+      <div className="vertex-ring-heading">
+        <h3>{ringLabel}</h3>
+        {ringType === 'hole' && holeIndex !== undefined && (
+          <button
+            type="button"
+            className="compact-button danger"
+            onClick={() => removeHole(ent.id, holeIndex)}
+          >
+            {t('panel.deleteHole')}
+          </button>
+        )}
+      </div>
       <table className="vertex-table">
         <thead>
           <tr>
@@ -139,48 +290,65 @@ export function VertexTable({ ent, coordDecimals }: { ent: PolygonEntity; coordD
           </tr>
         </thead>
         <tbody>
-          {ent.geometry.outer.map((p, i) => {
-            const next = ent.geometry.outer[(i + 1) % ent.geometry.outer.length];
+          {ring.map((point, index) => {
+            const nextPoint = ring[(index + 1) % ring.length];
+            const ref = {
+              entityId: ent.id,
+              ringType,
+              holeIndex,
+              vertexIndex: index,
+            } as const;
             return (
-              <tr key={`${ent.id}-${i}`}>
-                <td>{i + 1}</td>
+              <tr key={`${ent.id}-${ringType}-${holeIndex ?? 'outer'}-${index}`}>
+                <td>{index + 1}</td>
                 <td>
                   <VertexInput
-                    value={p.x}
+                    value={point.x}
                     decimals={coordDecimals}
-                    onCommit={(v) => commitOuterVertex(i, 'x', v)}
+                    label={t('panel.vertexCoordinate', {
+                      ring: ringLabel,
+                      index: index + 1,
+                      axis: 'X',
+                    })}
+                    onCommit={(value) =>
+                      commitVertex(ringType, holeIndex, index, 'x', value)
+                    }
                   />
                 </td>
                 <td>
                   <VertexInput
-                    value={p.y}
+                    value={point.y}
                     decimals={coordDecimals}
-                    onCommit={(v) => commitOuterVertex(i, 'y', v)}
+                    label={t('panel.vertexCoordinate', {
+                      ring: ringLabel,
+                      index: index + 1,
+                      axis: 'Y',
+                    })}
+                    onCommit={(value) =>
+                      commitVertex(ringType, holeIndex, index, 'y', value)
+                    }
                   />
                 </td>
                 <td className="vertex-actions">
                   <button
                     title={t('panel.insertVertexAfter')}
-                    onClick={() =>
-                      insertVertex(
-                        { entityId: ent.id, ringType: 'outer', vertexIndex: i },
-                        lerpPoint(p, next, 0.5),
-                      )
-                    }
+                    aria-label={t('panel.insertVertexAt', {
+                      ring: ringLabel,
+                      index: index + 1,
+                    })}
+                    onClick={() => insertVertex(ref, lerpPoint(point, nextPoint, 0.5))}
                   >
                     +
                   </button>
                   <button
                     title={t('panel.deleteVertexRow')}
-                    onClick={() =>
-                      deleteVertex({
-                        entityId: ent.id,
-                        ringType: 'outer',
-                        vertexIndex: i,
-                      })
-                    }
+                    aria-label={t('panel.deleteVertexAt', {
+                      ring: ringLabel,
+                      index: index + 1,
+                    })}
+                    onClick={() => deleteVertex(ref)}
                   >
-                    x
+                    ×
                   </button>
                 </td>
               </tr>
@@ -188,6 +356,21 @@ export function VertexTable({ ent, coordDecimals }: { ent: PolygonEntity; coordD
           })}
         </tbody>
       </table>
+    </div>
+  );
+
+  return (
+    <section>
+      <h2>{t('panel.vertexEditHeading')}</h2>
+      {renderRing(ent.geometry.outer, 'outer', t('panel.outerRing'))}
+      {ent.geometry.holes.map((hole, holeIndex) =>
+        renderRing(
+          hole,
+          'hole',
+          t('panel.holeRing', { index: holeIndex + 1 }),
+          holeIndex,
+        ),
+      )}
     </section>
   );
 }
@@ -196,16 +379,25 @@ export function SettingsSection() {
   const { t } = useTranslation();
   const project = useAppStore((s) => s.project);
   const updateSettings = useAppStore((s) => s.updateSettings);
+  const updateProjectUnit = useAppStore((s) => s.updateProjectUnit);
+  const units: Unit[] = ['mm', 'cm', 'm'];
   return (
     <section>
       <h2>{t('panel.settings')}</h2>
       <div className="row">
-        <span className="label">{t('panel.unit')}</span>
-        <span>{project.unit}</span>
+        <label className="label" htmlFor="project-unit">{t('panel.unit')}</label>
+        <select
+          id="project-unit"
+          value={project.unit}
+          onChange={(event) => updateProjectUnit(event.target.value as Unit)}
+        >
+          {units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+        </select>
       </div>
       <div className="row">
-        <span className="label">{t('panel.areaUnit')}</span>
+        <label className="label" htmlFor="area-display-unit">{t('panel.areaUnit')}</label>
         <select
+          id="area-display-unit"
           value={project.settings.areaDisplayUnit}
           onChange={(e) => updateSettings({ areaDisplayUnit: e.target.value as AreaUnit })}
         >
@@ -218,19 +410,98 @@ export function SettingsSection() {
       </div>
       <div className="row">
         <span className="label">{t('panel.gridSize')}</span>
-        <span>{project.settings.gridSize}</span>
+        <SettingsNumberInput
+          label={t('panel.gridSize')}
+          value={project.settings.gridSize}
+          min={1}
+          max={1_000_000}
+          onCommit={(gridSize) => updateSettings({ gridSize })}
+        />
       </div>
       <div className="row">
         <span className="label">{t('panel.circleSegments')}</span>
-        <span>{project.settings.circleSegments}</span>
+        <SettingsNumberInput
+          label={t('panel.circleSegments')}
+          value={project.settings.circleSegments}
+          min={8}
+          max={4096}
+          integer
+          onCommit={(circleSegments) => updateSettings({ circleSegments })}
+        />
+      </div>
+      <label className="row checkbox-row">
+        <span className="label">{t('panel.snapToGrid')}</span>
+        <input
+          type="checkbox"
+          checked={project.settings.snapToGrid}
+          onChange={(event) => updateSettings({ snapToGrid: event.target.checked })}
+        />
+      </label>
+      <label className="row checkbox-row">
+        <span className="label">{t('panel.snapToVertex')}</span>
+        <input
+          type="checkbox"
+          checked={project.settings.snapToVertex}
+          onChange={(event) => updateSettings({ snapToVertex: event.target.checked })}
+        />
+      </label>
+      <label className="row checkbox-row">
+        <span className="label">{t('panel.snapToEdge')}</span>
+        <input
+          type="checkbox"
+          checked={project.settings.snapToEdge}
+          onChange={(event) => updateSettings({ snapToEdge: event.target.checked })}
+        />
+      </label>
+      <label className="row checkbox-row">
+        <span className="label">{t('panel.angleSnap')}</span>
+        <input
+          type="checkbox"
+          checked={project.settings.angleSnapEnabled}
+          onChange={(event) => updateSettings({ angleSnapEnabled: event.target.checked })}
+        />
+      </label>
+      <div className="row">
+        <span className="label">{t('panel.angleIncrement')}</span>
+        <SettingsNumberInput
+          label={t('panel.angleIncrement')}
+          value={project.settings.angleSnapIncrementDeg}
+          min={1}
+          max={180}
+          onCommit={(angleSnapIncrementDeg) => updateSettings({ angleSnapIncrementDeg })}
+        />
+      </div>
+      <div className="row">
+        <span className="label">{t('panel.snapTolerance')}</span>
+        <SettingsNumberInput
+          label={t('panel.snapTolerance')}
+          value={project.settings.snapTolerancePx}
+          min={1}
+          max={200}
+          onCommit={(snapTolerancePx) => updateSettings({ snapTolerancePx })}
+        />
       </div>
       <div className="row">
         <span className="label">{t('panel.areaPrecision')}</span>
-        <span>{project.settings.areaPrecision}</span>
+        <SettingsNumberInput
+          label={t('panel.areaPrecision')}
+          value={project.settings.areaPrecision}
+          min={0}
+          max={12}
+          integer
+          onCommit={(areaPrecision) => updateSettings({ areaPrecision })}
+        />
       </div>
       <div className="row">
         <span className="label">{t('panel.coordPrecision')}</span>
-        <span>{project.settings.coordinatePrecision}</span>
+        <SettingsNumberInput
+          label={t('panel.coordPrecision')}
+          value={project.settings.coordinatePrecision}
+          min={0}
+          max={12}
+          integer
+          onCommit={(coordinatePrecision) => updateSettings({ coordinatePrecision })}
+        />
       </div>
     </section>
   );
