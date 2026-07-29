@@ -127,6 +127,24 @@ describe('validation', () => {
     expect(r.issues).toContain('hole-overlap');
   });
 
+  it("flags overlap when every crossing lands on one hole's vertices", () => {
+    const r = validatePolygon({
+      outer: rectangleToRing({ x: 0, y: 0 }, { x: 100, y: 100 }),
+      holes: [
+        rectangleToRing({ x: 10, y: 10 }, { x: 50, y: 50 }).reverse(),
+        [
+          { x: 50, y: 20 },
+          { x: 60, y: 30 },
+          { x: 50, y: 40 },
+          { x: 40, y: 30 },
+        ].reverse(),
+      ],
+    });
+
+    expect(r.valid).toBe(false);
+    expect(r.issues).toContain('hole-overlap');
+  });
+
   it.each([
     {
       name: 'matching winding',

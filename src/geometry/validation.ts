@@ -16,6 +16,7 @@ import type {
 import { EPS } from './types';
 import {
   isFiniteRing,
+  pointOnSegment,
   ringAreaTolerance,
   ringCoordinateTolerance,
 } from './numeric';
@@ -118,6 +119,37 @@ function overlappingEdgesShareInteriorSide(
   return aNormalX * bNormalX + aNormalY * bNormalY > 0;
 }
 
+function pointInRingStrictWithIndex(
+  point: Point,
+  bounds: BBox,
+  edges: BBoxSpatialIndex<IndexedEdge>,
+): boolean {
+  if (
+    point.x <= bounds.minX ||
+    point.x >= bounds.maxX ||
+    point.y <= bounds.minY ||
+    point.y >= bounds.maxY
+  ) {
+    return false;
+  }
+  let inside = false;
+  for (const edge of edges.queryValues({
+    minX: point.x,
+    minY: point.y,
+    maxX: bounds.maxX,
+    maxY: point.y,
+  })) {
+    if (pointOnSegment(point, edge.start, edge.end)) return false;
+    if ((edge.start.y > point.y) === (edge.end.y > point.y)) continue;
+    const intersectionX =
+      edge.start.x +
+      ((point.y - edge.start.y) * (edge.end.x - edge.start.x)) /
+        (edge.end.y - edge.start.y);
+    if (point.x < intersectionX) inside = !inside;
+  }
+  return inside;
+}
+
 function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
   if (
     a.length < 2 ||
@@ -136,6 +168,7 @@ function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
   );
   const aOrientation = Math.sign(signedRingArea(a));
   const bOrientation = Math.sign(signedRingArea(b));
+  const aEdges = ringEdges(a);
   const bEdges = ringEdges(b);
   const index = new BBoxSpatialIndex(
     bEdges.map((edge) => ({
@@ -143,7 +176,7 @@ function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
       value: edge,
     })),
   );
-  for (const edge of ringEdges(a)) {
+  for (const edge of aEdges) {
     for (const candidate of index.queryValues(
       edgeBBox(edge.start, edge.end, tolerance),
     )) {
@@ -174,6 +207,18 @@ function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
         return true;
       }
     }
+  }
+  if (a.some((point) => pointInRingStrictWithIndex(point, bBounds, index))) {
+    return true;
+  }
+  const aIndex = new BBoxSpatialIndex(
+    aEdges.map((edge) => ({
+      bbox: edgeBBox(edge.start, edge.end, tolerance),
+      value: edge,
+    })),
+  );
+  if (b.some((point) => pointInRingStrictWithIndex(point, aBounds, aIndex))) {
+    return true;
   }
   return (
     (
