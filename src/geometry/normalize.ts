@@ -6,7 +6,11 @@ import type {
   Ring,
 } from './types';
 import { EPS } from './types';
-import { pointsAlmostEqual, ringAreaTolerance } from './numeric';
+import {
+  isFiniteRing,
+  pointsAlmostEqual,
+  ringAreaTolerance,
+} from './numeric';
 
 const ROUND_DECIMALS = 9;
 const ROUND_FACTOR = 10 ** ROUND_DECIMALS;
@@ -39,13 +43,7 @@ export function dedupeAdjacent(ring: Ring, eps = EPS): Ring {
 }
 
 export function normalizeRing(ring: Ring): Ring | null {
-  if (
-    ring.some(
-      (point) => !Number.isFinite(point.x) || !Number.isFinite(point.y),
-    )
-  ) {
-    return null;
-  }
+  if (!isFiniteRing(ring)) return null;
   const rounded = ring.map(roundPoint);
   const cleaned = dedupeAdjacent(rounded);
   if (cleaned.length < 3) return null;

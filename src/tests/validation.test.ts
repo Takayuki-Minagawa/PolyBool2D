@@ -70,4 +70,12 @@ describe('validation', () => {
       expect(r.issues).toContain('zero-area');
     },
   );
+
+  it('handles a large simple ring through the indexed broad phase', () => {
+    const ring = Array.from({ length: 1024 }, (_, index) => {
+      const angle = (index / 1024) * Math.PI * 2;
+      return { x: Math.cos(angle) * 1000, y: Math.sin(angle) * 1000 };
+    });
+    expect(ringHasSelfIntersection(ring)).toBe(false);
+  });
 });

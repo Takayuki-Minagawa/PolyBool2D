@@ -64,6 +64,13 @@ describe('ManualModal', () => {
     expect(document.activeElement).toBe(closeButton);
 
     act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(closeButton);
+
+    act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
 

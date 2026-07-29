@@ -68,6 +68,21 @@ function renderPanel() {
 }
 
 describe('PropertyPanel layer manager', () => {
+  it('shows workspace extras and underlays for every selection state', () => {
+    renderPanel();
+    expect(host!.textContent).toContain('グループ・部品・拘束');
+    expect(host!.textContent).toContain('下絵画像');
+
+    act(() => {
+      useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 4, y: 2 });
+    });
+
+    expect(host!.textContent).toContain('グループ・部品・拘束');
+    expect(host!.textContent).toContain('下絵画像');
+  });
+
   it('is visible without a selection and manages layer properties and assignment', () => {
     renderPanel();
     expect(host!.textContent).toContain('レイヤー');
@@ -109,6 +124,25 @@ describe('PropertyPanel layer manager', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     act(() => namedButton('「構造」を削除').click());
     expect(useAppStore.getState().project.layers).toHaveLength(1);
+  });
+});
+
+describe('PropertyPanel section properties', () => {
+  it('shows second moments, section moduli, and radii for one polygon', () => {
+    act(() => {
+      useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 4, y: 2 });
+    });
+    renderPanel();
+
+    expect(host!.textContent).toContain('断面性能');
+    expect(host!.textContent).toContain('断面二次モーメント Ix2.667 mm⁴');
+    expect(host!.textContent).toContain('断面二次モーメント Iy10.667 mm⁴');
+    expect(host!.textContent).toContain('断面係数 Zx2.667 mm³');
+    expect(host!.textContent).toContain('断面係数 Zy5.333 mm³');
+    expect(host!.textContent).toContain('回転半径 rx0.577 mm');
+    expect(host!.textContent).toContain('回転半径 ry1.155 mm');
   });
 });
 

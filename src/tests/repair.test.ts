@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { multiPolygonArea } from '../geometry/area';
-import { repairPolygon, repairRing } from '../geometry/repair';
+import {
+  repairPolygon,
+  repairPolygonResult,
+  repairRing,
+  repairRingResult,
+} from '../geometry/repair';
 import { validatePolygon } from '../geometry/validation';
 
 describe('self-intersection repair', () => {
@@ -42,5 +47,25 @@ describe('self-intersection repair', () => {
         { x: 0, y: 1 },
       ]),
     ).toEqual([]);
+  });
+
+  it('exposes a reason while preserving the empty-result compatibility API', () => {
+    const invalid = [
+      { x: 0, y: 0 },
+      { x: Number.NaN, y: 0 },
+      { x: 0, y: 1 },
+    ];
+    expect(repairRing(invalid)).toEqual([]);
+    expect(repairRingResult(invalid)).toMatchObject({
+      ok: false,
+      value: [],
+      reason: 'invalid-input',
+    });
+    expect(
+      repairPolygonResult({ outer: invalid, holes: [] }),
+    ).toMatchObject({
+      ok: false,
+      reason: 'invalid-input',
+    });
   });
 });

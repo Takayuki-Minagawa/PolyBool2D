@@ -16,6 +16,7 @@ import {
   type ProjectBackupSummary,
   type StoredProjectSummary,
 } from '../../persistence/localProjectStore';
+import { useModalDismiss } from '../common/useModalDismiss';
 
 type Props = {
   open: boolean;
@@ -42,6 +43,7 @@ export function ProjectManagerModal({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const refresh = () => setProjects(listLocalProjects());
 
@@ -53,22 +55,12 @@ export function ProjectManagerModal({
     setEditingId(null);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    closeButtonRef.current?.focus();
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
-    };
-  }, [open, onClose]);
+  useModalDismiss({
+    open,
+    onDismiss: onClose,
+    containerRef: dialogRef,
+    initialFocusRef: closeButtonRef,
+  });
 
   if (!open) return null;
 
@@ -170,10 +162,12 @@ export function ProjectManagerModal({
   return (
     <div className="modal-overlay" role="presentation" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className="modal project-manager-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="project-manager-title"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header>

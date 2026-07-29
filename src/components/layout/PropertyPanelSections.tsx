@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import { AREA_UNITS, AREA_UNIT_LABEL } from '../../app/units';
 import type { AreaUnit, PolygonEntity, Unit } from '../../app/projectTypes';
-import { defaultEngine } from '../../geometry/geometryEngine';
+import { getEngine } from '../../geometry/geometryEngine';
 import { lerpPoint } from '../../geometry/numeric';
 import type { Ring } from '../../geometry/types';
+import { CommitInput } from '../common/CommitInput';
 
 type VertexInputProps = {
   value: number;
@@ -15,36 +16,18 @@ type VertexInputProps = {
 };
 
 function VertexInput({ value, decimals, label, onCommit }: VertexInputProps) {
-  const [text, setText] = useState(value.toFixed(decimals));
-
-  useEffect(() => {
-    setText(value.toFixed(decimals));
-  }, [value, decimals]);
-
-  function commit() {
-    const v = Number(text);
-    if (Number.isFinite(v) && v !== value) {
-      onCommit(v);
-    } else {
-      setText(value.toFixed(decimals));
-    }
-  }
-
+  const formatted = value.toFixed(decimals);
   return (
-    <input
+    <CommitInput
       aria-label={label}
       type="number"
       step="any"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.currentTarget.blur();
-        } else if (e.key === 'Escape') {
-          setText(value.toFixed(decimals));
-          e.currentTarget.blur();
-        }
+      value={formatted}
+      onCommit={(text) => {
+        const v = Number(text);
+        if (!Number.isFinite(v)) return false;
+        if (v !== value) onCommit(v);
+        return true;
       }}
     />
   );
@@ -67,44 +50,20 @@ function SettingsNumberInput({
   label,
   onCommit,
 }: SettingsNumberInputProps) {
-  const [text, setText] = useState(String(value));
-
-  useEffect(() => {
-    setText(String(value));
-  }, [value]);
-
-  function reset() {
-    setText(String(value));
-  }
-
-  function commit() {
-    const parsed = Number(text);
-    const next = integer ? Math.round(parsed) : parsed;
-    if (!Number.isFinite(next) || next < min || next > max) {
-      reset();
-      return;
-    }
-    if (next !== value) onCommit(next);
-    setText(String(next));
-  }
-
   return (
-    <input
+    <CommitInput
       aria-label={label}
       type="number"
-      value={text}
+      value={String(value)}
       min={min}
       max={max}
       step={integer ? 1 : 'any'}
-      onChange={(event) => setText(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          reset();
-          event.currentTarget.blur();
-        }
+      onCommit={(text) => {
+        const parsed = Number(text);
+        const next = integer ? Math.round(parsed) : parsed;
+        if (!Number.isFinite(next) || next < min || next > max) return false;
+        if (next !== value) onCommit(next);
+        return true;
       }}
     />
   );
@@ -257,7 +216,7 @@ export function VertexTable({ ent, coordDecimals }: { ent: PolygonEntity; coordD
               : hole,
           ),
         };
-    const next = defaultEngine.normalize([nextGeometry])[0];
+    const next = getEngine().normalize([nextGeometry])[0];
     if (next) updateEntityGeometry(ent.id, next);
   };
 

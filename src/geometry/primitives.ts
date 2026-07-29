@@ -1,12 +1,13 @@
-import { distance, pointsAlmostEqual } from './numeric';
+import {
+  ARC_SWEEP_TOLERANCE,
+  distance,
+  isFinitePoint,
+  pointsAlmostEqual,
+} from './numeric';
 import { ensureOuterCCW } from './normalize';
 import type { Point, Ring } from './types';
 
 const TAU = Math.PI * 2;
-
-function finitePoint(point: Point): boolean {
-  return Number.isFinite(point.x) && Number.isFinite(point.y);
-}
 
 function normalizedSegments(segments: number, minimum: number): number {
   if (!Number.isFinite(segments)) return minimum;
@@ -22,7 +23,7 @@ export function ellipseToRing(
   rotationRad = 0,
 ): Ring {
   if (
-    !finitePoint(center) ||
+    !isFinitePoint(center) ||
     !Number.isFinite(radiusX) ||
     !Number.isFinite(radiusY) ||
     !Number.isFinite(rotationRad) ||
@@ -65,7 +66,13 @@ export function arcToPolyline(
   segmentsPerCircle = 64,
   direction: ArcDirection = 'shortest',
 ): Point[] {
-  if (!finitePoint(center) || !finitePoint(start) || !finitePoint(end)) return [];
+  if (
+    !isFinitePoint(center) ||
+    !isFinitePoint(start) ||
+    !isFinitePoint(end)
+  ) {
+    return [];
+  }
   const radius = distance(center, start);
   if (!(radius > 0) || !Number.isFinite(radius)) return [];
 
@@ -85,7 +92,10 @@ export function arcToPolyline(
   else if (direction === 'clockwise') sweep = clockwiseSweep;
   else sweep = ccwSweep <= Math.PI ? ccwSweep : clockwiseSweep;
 
-  if (pointsAlmostEqual(start, endOnCircle) && Math.abs(sweep) < 1e-12) {
+  if (
+    pointsAlmostEqual(start, endOnCircle) &&
+    Math.abs(sweep) < ARC_SWEEP_TOLERANCE
+  ) {
     return [{ ...start }];
   }
 
@@ -106,7 +116,7 @@ export function arcToPolyline(
 
 /** Return the angle ABC in radians in the inclusive range [0, PI]. */
 export function angleAtPoint(a: Point, b: Point, c: Point): number | null {
-  if (!finitePoint(a) || !finitePoint(b) || !finitePoint(c)) return null;
+  if (!isFinitePoint(a) || !isFinitePoint(b) || !isFinitePoint(c)) return null;
   const bax = a.x - b.x;
   const bay = a.y - b.y;
   const bcx = c.x - b.x;

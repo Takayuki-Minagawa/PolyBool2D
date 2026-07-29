@@ -6,7 +6,11 @@ import {
   uniqueLayerName,
 } from '../layers';
 import type { Layer } from '../projectTypes';
-import { touchProject, touchProjectSettings } from './helpers';
+import {
+  resolveDrawingLayer,
+  touchProject,
+  touchProjectUpdatedAt,
+} from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
 
 const LAYER_COLORS = ['#3a8dde', '#e05d5d', '#41a66b', '#9b6bd3', '#d58b2a', '#2ca6a4'];
@@ -32,7 +36,7 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
       };
       state.pushHistory();
       set((current) => ({
-        project: touchProjectSettings({
+        project: touchProjectUpdatedAt({
           ...current.project,
           layers: [...current.project.layers, layer],
         }),
@@ -58,19 +62,16 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
       if (!changed) return;
       current.pushHistory();
       set((state) => {
-        const project = touchProjectSettings({
+        const project = touchProjectUpdatedAt({
           ...state.project,
           layers: state.project.layers.map((layer) =>
             layer.id === id ? { ...layer, ...sanitized } : layer,
           ),
         });
-        const activeLayerId = project.layers.some(
-          (layer) =>
-            layer.id === state.ui.activeLayerId && layer.visible && !layer.locked,
-        )
-          ? state.ui.activeLayerId
-          : project.layers.find((layer) => layer.visible && !layer.locked)?.id ??
-            project.layers[0].id;
+        const activeLayerId =
+          resolveDrawingLayer(project, state.ui.activeLayerId)?.id ??
+          project.layers[0]?.id ??
+          '';
         return {
           project,
           selectedEntityIds: state.selectedEntityIds.filter((entityId) => {
@@ -95,7 +96,7 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
       if (!fallback || !current.project.layers.some((layer) => layer.id === id)) return;
       current.pushHistory();
       set((state) => ({
-        project: touchProjectSettings({
+        project: touchProjectUpdatedAt({
           ...state.project,
           layers: state.project.layers.filter((layer) => layer.id !== id),
           entities: entitiesReassignedFromLayer(state.project.entities, id, fallback.id),

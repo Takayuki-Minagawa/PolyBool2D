@@ -16,13 +16,18 @@
     "projects": "Projects",
     "importJson": "Import JSON",
     "importSvg": "Import SVG",
+    "importDxf": "Import DXF",
+    "importGeoJson": "Import GeoJSON",
+    "importUnderlay": "Import underlay",
     "exportJson": "JSON",
     "exportSvg": "SVG",
     "exportPng": "PNG",
     "exportDxf": "DXF",
+    "exportGeoJson": "GeoJSON",
     "exportCsvArea": "Area CSV",
     "exportCsvVertices": "Vertex CSV",
     "share": "Share URL",
+    "sectionReport": "Section report",
     "theme": {
       "light": "Light",
       "dark": "Dark"
@@ -45,6 +50,9 @@
     "hole": "Hole",
     "guideLine": "Guide",
     "measure": "Measure",
+    "linearDimension": "Linear dim.",
+    "angularDimension": "Angular dim.",
+    "annotation": "Annotation",
     "knife": "Knife",
     "union": "Union",
     "difference": "Difference",
@@ -142,7 +150,39 @@
     "chamfer": "Chamfer",
     "fillet": "Fillet",
     "repair": "Repair geometry",
-    "minimumBounds": "Minimum bounds"
+    "minimumBounds": "Minimum bounds",
+    "sectionProperties": "Section properties",
+    "secondMomentIx": "Second moment Ix",
+    "secondMomentIy": "Second moment Iy",
+    "sectionModulusX": "Section modulus Zx",
+    "sectionModulusY": "Section modulus Zy",
+    "radiusOfGyrationX": "Radius of gyration rx",
+    "radiusOfGyrationY": "Radius of gyration ry"
+    ,"workspaceExtras": "Groups, parts & constraints"
+    ,"groupSelection": "Group selection"
+    ,"ungroupSelection": "Ungroup selection"
+    ,"saveTemplate": "Save selection as part"
+    ,"insertTemplate": "Insert latest part"
+    ,"constraints": "Parametric constraints"
+    ,"edgeLength": "First-edge length"
+    ,"applyLengthConstraint": "Constrain length"
+    ,"horizontalConstraint": "Make first edge horizontal"
+    ,"verticalConstraint": "Make first edge vertical"
+    ,"angleConstraint": "First-three-point angle (deg)"
+    ,"applyAngleConstraint": "Constrain angle"
+    ,"parallelConstraint": "Make first edges parallel"
+    ,"perpendicularConstraint": "Make first edges perpendicular"
+    ,"clearConstraints": "Clear all constraints"
+    ,"underlays": "Underlay images"
+    ,"noUnderlays": "No underlays. Add one with “Import underlay” in the header."
+    ,"visible": "Visible"
+    ,"opacity": "Opacity"
+    ,"underlay": {
+      "x": "X",
+      "y": "Y",
+      "scale": "Scale",
+      "rotationDeg": "Rotation (deg)"
+    }
   },
   "status": {
     "tool": "Tool",
@@ -159,14 +199,21 @@
     "guideHole": "Select one polygon, draw a closed inner ring / Enter to confirm",
     "guideGuideLine": "Drag to place an infinite guide line",
     "guideMeasure": "Click points for distance, angle and cumulative length / Enter to clear",
+    "guideLinearDimension": "Click measured start, measured end and dimension-line position",
+    "guideAngularDimension": "Click center, first ray and second ray",
+    "guideAnnotation": "Click the insertion point and enter annotation text",
     "guideKnife": "Drag a line across the polygon / release to confirm",
     "guideSelect": "Click to select (Shift to add)",
     "guidePan": "Drag to pan / wheel to zoom",
     "guideVertex-edit": "Drag vertices to move / Alt+click to delete",
     "jsonImported": "Loaded “{{name}}”.",
     "svgImported": "Imported {{count}} shape(s) from SVG ({{warnings}} warning(s)).",
+    "dxfImported": "Imported {{count}} shape(s) from DXF ({{warnings}} warning(s)).",
+    "geoJsonImported": "Imported {{count}} shape(s) from GeoJSON ({{warnings}} warning(s)).",
+    "underlayImported": "Imported underlay “{{name}}”.",
     "pngExported": "Exported PNG.",
     "dxfExported": "Exported DXF.",
+    "reportOpened": "Opened the section-properties report.",
     "shareCopied": "Copied the share URL to the clipboard.",
     "projectLoaded": "Opened “{{name}}”."
   },
@@ -197,8 +244,14 @@
     },
     "importInvalid": "Invalid JSON file.",
     "svgImportInvalid": "No supported shapes were found in the SVG.",
+    "dxfImportInvalid": "No supported shapes were found in the DXF.",
+    "geoJsonImportInvalid": "No supported shapes were found in the GeoJSON.",
+    "underlayImportInvalid": "The underlay image could not be stored.",
     "pngExportFailed": "PNG export failed.",
     "dxfExportFailed": "DXF export failed.",
+    "reportOpenFailed": "The printable report window could not be opened.",
+    "templateSaveFailed": "The part template could not be saved.",
+    "constraintFailed": "The constraints could not be solved. Check for contradictions or fixed points.",
     "shareTooLarge": "The project is too large to encode in a share URL.",
     "shareClipboardFailed": "Could not copy the share URL to the clipboard.",
     "shareInvalid": "The project data in the share URL is invalid.",

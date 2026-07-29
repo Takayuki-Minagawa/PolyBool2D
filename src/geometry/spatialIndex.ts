@@ -1,5 +1,6 @@
 import type { BBox } from './measure';
 import type { Point } from './types';
+import { isFinitePoint } from './numeric';
 
 export type BBoxIndexItem<T> = {
   bbox: BBox;
@@ -50,8 +51,7 @@ export function bboxContainsPoint(box: BBox, point: Point): boolean {
   const normalized = normalizeBBox(box);
   return (
     normalized !== null &&
-    Number.isFinite(point.x) &&
-    Number.isFinite(point.y) &&
+    isFinitePoint(point) &&
     point.x >= normalized.minX &&
     point.x <= normalized.maxX &&
     point.y >= normalized.minY &&
@@ -199,7 +199,7 @@ export class BBoxSpatialIndex<T> {
   }
 
   queryPoint(point: Point): BBoxIndexItem<T>[] {
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return [];
+    if (!isFinitePoint(point)) return [];
     return this.query({
       minX: point.x,
       minY: point.y,

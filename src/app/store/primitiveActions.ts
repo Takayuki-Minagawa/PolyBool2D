@@ -3,18 +3,12 @@ import { ellipseToRing } from '../../geometry/primitives';
 import { distance } from '../../geometry/numeric';
 import { validatePolygon } from '../../geometry/validation';
 import { createLinearEntity } from '../projectFactory';
-import { getPolygon, touchProject } from './helpers';
+import { getPolygon, resolveDrawingLayer, touchProject } from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
 
 function activeLayerId(get: AppGet): string | null {
   const state = get();
-  return (
-    state.project.layers.find(
-      (layer) => layer.id === state.ui.activeLayerId && layer.visible && !layer.locked,
-    )?.id ??
-    state.project.layers.find((layer) => layer.visible && !layer.locked)?.id ??
-    null
-  );
+  return resolveDrawingLayer(state.project, state.ui.activeLayerId)?.id ?? null;
 }
 
 export function createPrimitiveActions(set: AppSet, get: AppGet): Pick<
@@ -43,12 +37,28 @@ export function createPrimitiveActions(set: AppSet, get: AppGet): Pick<
       });
     },
 
-    addLinearEntity: (points, kind) => {
-      if (
-        points.length < 2 ||
-        points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y)) ||
-        points.every((point) => distance(point, points[0]) <= 1e-9)
-      ) {
+    addLinearEntity: (points, kind, options = {}) => {
+      const minimumPoints =
+        kind === 'annotation'
+          ? 1
+          : kind === 'linear-dimension' || kind === 'angular-dimension'
+            ? 3
+            : 2;
+      const finite = points.every(
+        (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+      );
+      const validShape =
+        kind === 'annotation'
+          ? typeof options.label === 'string' && options.label.trim().length > 0
+          : kind === 'linear-dimension'
+            ? points.length >= 2 && distance(points[0], points[1]) > 1e-9
+            : kind === 'angular-dimension'
+              ? points.length >= 3 &&
+                distance(points[0], points[1]) > 1e-9 &&
+                distance(points[0], points[2]) > 1e-9
+              : points.length >= 2 &&
+                points.some((point) => distance(point, points[0]) > 1e-9);
+      if (points.length < minimumPoints || !finite || !validShape) {
         get().setErrorMessage('errors.invalidLine');
         return null;
       }
@@ -57,7 +67,7 @@ export function createPrimitiveActions(set: AppSet, get: AppGet): Pick<
         get().setErrorMessage('errors.noDrawableLayer');
         return null;
       }
-      const entity = createLinearEntity(points, kind, { layerId });
+      const entity = createLinearEntity(points, kind, { ...options, layerId });
       get().pushHistory();
       set((state) => ({
         project: touchProject(state.project, [...state.project.entities, entity]),

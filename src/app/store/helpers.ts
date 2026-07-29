@@ -1,6 +1,12 @@
 import { polygonBBox, type BBox } from '../../geometry/measure';
 import type { Point, PolygonGeometry, Ring } from '../../geometry/types';
-import type { Entity, PolygonEntity, Project, VertexRef } from '../projectTypes';
+import type {
+  Entity,
+  Layer,
+  PolygonEntity,
+  Project,
+  VertexRef,
+} from '../projectTypes';
 import type { AlignMode } from './types';
 
 export const HISTORY_LIMIT = 50;
@@ -14,12 +20,50 @@ export function touchProject(project: Project, entities: Entity[]): Project {
   return { ...project, entities, updatedAt: new Date().toISOString() };
 }
 
-export function touchProjectSettings(project: Project): Project {
+export function touchProjectUpdatedAt(project: Project): Project {
   return { ...project, updatedAt: new Date().toISOString() };
 }
 
 export function isPolygon(e: Entity): e is PolygonEntity {
   return e.type === 'polygon';
+}
+
+export function resolveDrawingLayer(
+  project: Project,
+  preferredLayerId?: string,
+): Layer | null {
+  return (
+    project.layers.find(
+      (layer) =>
+        layer.id === preferredLayerId && layer.visible && !layer.locked,
+    ) ??
+    project.layers.find((layer) => layer.visible && !layer.locked) ??
+    null
+  );
+}
+
+export function mutateSelectedPolygons(
+  project: Project,
+  selectedIds: string[],
+  mutate: (
+    entity: PolygonEntity,
+    selected: PolygonEntity[],
+  ) => PolygonEntity | null,
+): { entities: Entity[]; changed: boolean } {
+  const selected = polygonsByIds(project, selectedIds);
+  if (selected.length === 0) {
+    return { entities: project.entities, changed: false };
+  }
+  const wanted = new Set(selected.map((entity) => entity.id));
+  let changed = false;
+  const entities = project.entities.map((entity) => {
+    if (!isPolygon(entity) || !wanted.has(entity.id)) return entity;
+    const next = mutate(entity, selected);
+    if (!next || next === entity) return entity;
+    changed = true;
+    return next;
+  });
+  return { entities, changed };
 }
 
 export function polygonsByIds(project: Project, ids: string[]): PolygonEntity[] {
@@ -43,20 +87,6 @@ export function replaceEntities(
     ...project.entities.filter((e) => !remove.has(e.id)),
     ...added,
   ]);
-}
-
-export function mapPolygonGeometries(
-  project: Project,
-  ids: string[],
-  fn: (geom: PolygonGeometry, entity: PolygonEntity) => PolygonGeometry,
-): Project {
-  const wanted = new Set(ids);
-  return touchProject(
-    project,
-    project.entities.map((e) =>
-      isPolygon(e) && wanted.has(e.id) ? { ...e, geometry: fn(e.geometry, e) } : e,
-    ),
-  );
 }
 
 export function applyTransientGeometryUpdates(

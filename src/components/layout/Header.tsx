@@ -9,7 +9,20 @@ import { exportSvgFile } from '../../persistence/svgExport';
 import { exportAreaCsvFile, exportVertexCsvFile } from '../../persistence/csvExport';
 import { exportPngFile } from '../../persistence/pngExport';
 import { exportDxfFile } from '../../persistence/dxfExport';
+import { importDxfFile } from '../../persistence/dxfImport';
 import { importSvgFile } from '../../persistence/svgImport';
+import {
+  exportGeoJsonFile,
+  importGeoJsonFile,
+} from '../../persistence/geoJson';
+import {
+  buildProjectSectionReportHtml,
+} from '../../persistence/sectionReport';
+import {
+  createUnderlayImage,
+  notifyUnderlaysChanged,
+  saveUnderlayImage,
+} from '../../persistence/underlayStore';
 import { buildShareUrl } from '../../persistence/shareUrl';
 import { saveProjectToLocal } from '../../persistence/localProjectStore';
 import { ProjectManagerModal } from './ProjectManagerModal';
@@ -24,6 +37,7 @@ export function Header() {
   const reset = useAppStore((s) => s.resetProject);
   const loadProject = useAppStore((s) => s.loadProject);
   const importPolygonGeometries = useAppStore((s) => s.importPolygonGeometries);
+  const addLinearEntity = useAppStore((s) => s.addLinearEntity);
   const setErrorMessage = useAppStore((s) => s.setErrorMessage);
   const setStatusMessage = useAppStore((s) => s.setStatusMessage);
   const theme = useAppStore((s) => s.ui.theme);
@@ -34,7 +48,11 @@ export function Header() {
   const setShortcutsOpen = useAppStore((s) => s.setShortcutsOpen);
   const jsonFileInput = useRef<HTMLInputElement>(null);
   const svgFileInput = useRef<HTMLInputElement>(null);
-  const [projectManagerOpen, setProjectManagerOpen] = useState(false);
+  const dxfFileInput = useRef<HTMLInputElement>(null);
+  const geoJsonFileInput = useRef<HTMLInputElement>(null);
+  const underlayFileInput = useRef<HTMLInputElement>(null);
+  const projectManagerOpen = useAppStore((s) => s.ui.projectManagerOpen);
+  const setProjectManagerOpen = useAppStore((s) => s.setProjectManagerOpen);
   const [busyAction, setBusyAction] = useState<'png' | 'share' | null>(null);
 
   function onChangeLang(l: 'ja' | 'en') {
@@ -99,6 +117,62 @@ export function Header() {
     }));
   }
 
+  async function onDxfImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const result = await importDxfFile(file, {
+      curveSegments: project.settings.circleSegments,
+    });
+    const polygonCount = importPolygonGeometries(result.polygons).length;
+    let linearCount = 0;
+    for (const item of result.polylines) {
+      if (addLinearEntity(item.points, item.kind)) linearCount += 1;
+    }
+    if (polygonCount + linearCount === 0) {
+      reportError('errors.dxfImportInvalid');
+      return;
+    }
+    reportSuccess(t('status.dxfImported', {
+      count: polygonCount + linearCount,
+      warnings: result.warnings.length,
+    }));
+  }
+
+  async function onGeoJsonImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const result = await importGeoJsonFile(file);
+    const count = importPolygonGeometries(result.polygons).length;
+    if (count === 0) {
+      reportError('errors.geoJsonImportInvalid');
+      return;
+    }
+    reportSuccess(t('status.geoJsonImported', {
+      count,
+      warnings: result.warnings.length,
+    }));
+  }
+
+  async function onUnderlayImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const image = await createUnderlayImage(project.id, file, file.name);
+    if (!image) {
+      reportError('errors.underlayImportInvalid');
+      return;
+    }
+    try {
+      await saveUnderlayImage(image);
+      notifyUnderlaysChanged(project.id);
+      reportSuccess(t('status.underlayImported', { name: image.name }));
+    } catch {
+      reportError('errors.underlayImportInvalid');
+    }
+  }
+
   async function onPngExport() {
     setBusyAction('png');
     try {
@@ -122,6 +196,23 @@ export function Header() {
     } catch {
       reportError('errors.dxfExportFailed');
     }
+  }
+
+  function onSectionReport() {
+    const html = buildProjectSectionReportHtml(project);
+    const reportWindow = window.open('', '_blank');
+    if (!reportWindow) {
+      reportError('errors.reportOpenFailed');
+      return;
+    }
+    reportWindow.document.open();
+    reportWindow.document.write(html);
+    reportWindow.document.close();
+    reportWindow.addEventListener('load', () => {
+      reportWindow.focus();
+      reportWindow.print();
+    }, { once: true });
+    reportSuccess(t('status.reportOpened'));
   }
 
   async function onShare() {
@@ -179,6 +270,36 @@ export function Header() {
           style={{ display: 'none' }}
           onChange={onSvgImport}
         />
+        <button onClick={() => dxfFileInput.current?.click()}>
+          {t('header.importDxf')}
+        </button>
+        <input
+          ref={dxfFileInput}
+          type="file"
+          accept="application/dxf,text/plain,.dxf"
+          style={{ display: 'none' }}
+          onChange={(event) => void onDxfImport(event)}
+        />
+        <button onClick={() => geoJsonFileInput.current?.click()}>
+          {t('header.importGeoJson')}
+        </button>
+        <input
+          ref={geoJsonFileInput}
+          type="file"
+          accept="application/geo+json,application/json,.geojson,.json"
+          style={{ display: 'none' }}
+          onChange={(event) => void onGeoJsonImport(event)}
+        />
+        <button onClick={() => underlayFileInput.current?.click()}>
+          {t('header.importUnderlay')}
+        </button>
+        <input
+          ref={underlayFileInput}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+          style={{ display: 'none' }}
+          onChange={(event) => void onUnderlayImport(event)}
+        />
       </div>
 
       <div className="group">
@@ -198,6 +319,9 @@ export function Header() {
         <button onClick={onDxfExport} title="DXF">
           {t('header.exportDxf')}
         </button>
+        <button onClick={() => exportGeoJsonFile(project)} title="GeoJSON">
+          {t('header.exportGeoJson')}
+        </button>
         <button onClick={() => exportAreaCsvFile(project)} title="CSV">
           {t('header.exportCsvArea')}
         </button>
@@ -209,6 +333,9 @@ export function Header() {
           disabled={busyAction === 'share'}
         >
           {t('header.share')}
+        </button>
+        <button onClick={onSectionReport}>
+          {t('header.sectionReport')}
         </button>
       </div>
 

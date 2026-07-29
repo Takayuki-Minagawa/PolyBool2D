@@ -22,6 +22,10 @@ import {
   VertexTable,
 } from './PropertyPanelSections';
 import { AdvancedGeometrySection } from './AdvancedGeometrySection';
+import { PanelShell } from './PanelShell';
+import { UnderlaySection } from './UnderlaySection';
+import { WorkspaceExtrasSection } from './WorkspaceExtrasSection';
+import { calculateSectionProperties } from '../../geometry/sectionProperties';
 
 function polygonEntities(project: Project): PolygonEntity[] {
   return project.entities.filter((e): e is PolygonEntity => e.type === 'polygon');
@@ -32,6 +36,8 @@ function ManagementSections() {
     <>
       <LayerManagerSection />
       <EntityOutlinerSection />
+      <WorkspaceExtrasSection />
+      <UnderlaySection />
     </>
   );
 }
@@ -53,7 +59,7 @@ export function PropertyPanel() {
 
   if (selectedIds.length === 0) {
     return (
-      <aside className="panel">
+      <PanelShell>
         <section>
           <h2>{t('panel.noSelection')}</h2>
           <div className="row">
@@ -68,7 +74,7 @@ export function PropertyPanel() {
 
         <ManagementSections />
         <SettingsSection />
-      </aside>
+      </PanelShell>
     );
   }
 
@@ -76,15 +82,15 @@ export function PropertyPanel() {
     const selectedEntity = project.entities.find((entity) => entity.id === selectedIds[0]);
     if (!selectedEntity) {
       return (
-        <aside className="panel">
+        <PanelShell>
           <ManagementSections />
           <SettingsSection />
-        </aside>
+        </PanelShell>
       );
     }
     if (selectedEntity.type !== 'polygon') {
       return (
-        <aside className="panel">
+        <PanelShell>
           <section>
             <h2>{t('panel.linearEntity')}</h2>
             <div className="row">
@@ -100,7 +106,7 @@ export function PropertyPanel() {
           </section>
           <ManagementSections />
           <SettingsSection />
-        </aside>
+        </PanelShell>
       );
     }
     const ent = selectedEntity;
@@ -114,9 +120,14 @@ export function PropertyPanel() {
     const box = polygonBBox(ent.geometry);
     const size = box ? bboxSize(box) : { width: 0, height: 0 };
     const centroid = polygonCentroid(ent.geometry);
+    const section = calculateSectionProperties(ent.geometry);
+    const formatSectionValue = (value: number, power: 1 | 3 | 4) =>
+      Number.isFinite(value)
+        ? `${value.toFixed(decimals)} ${project.unit}${power === 1 ? '' : power === 3 ? '³' : '⁴'}`
+        : '—';
 
     return (
-      <aside className="panel">
+      <PanelShell>
         <section>
           <h2>{t('panel.polygonName')}</h2>
           <div className="row">
@@ -159,6 +170,35 @@ export function PropertyPanel() {
             <span className="label">{t('panel.holeCount')}</span>
             <span>{ent.geometry.holes.length}</span>
           </div>
+          {section && (
+            <>
+              <h3>{t('panel.sectionProperties')}</h3>
+              <div className="row">
+                <span className="label">{t('panel.secondMomentIx')}</span>
+                <span>{formatSectionValue(section.ix, 4)}</span>
+              </div>
+              <div className="row">
+                <span className="label">{t('panel.secondMomentIy')}</span>
+                <span>{formatSectionValue(section.iy, 4)}</span>
+              </div>
+              <div className="row">
+                <span className="label">{t('panel.sectionModulusX')}</span>
+                <span>{formatSectionValue(section.sectionModulus.x, 3)}</span>
+              </div>
+              <div className="row">
+                <span className="label">{t('panel.sectionModulusY')}</span>
+                <span>{formatSectionValue(section.sectionModulus.y, 3)}</span>
+              </div>
+              <div className="row">
+                <span className="label">{t('panel.radiusOfGyrationX')}</span>
+                <span>{formatSectionValue(section.radiusOfGyration.x, 1)}</span>
+              </div>
+              <div className="row">
+                <span className="label">{t('panel.radiusOfGyrationY')}</span>
+                <span>{formatSectionValue(section.radiusOfGyration.y, 1)}</span>
+              </div>
+            </>
+          )}
           <button onClick={() => removeEntities([ent.id])} className="panel-action">
             {t('panel.delete')}
           </button>
@@ -170,14 +210,14 @@ export function PropertyPanel() {
         <AdvancedGeometrySection />
         <VertexTable ent={ent} coordDecimals={coordDecimals} />
         <SettingsSection />
-      </aside>
+      </PanelShell>
     );
   }
 
   const selectedEnts = polys.filter((p) => selectedIds.includes(p.id));
   const selArea = selectedEnts.reduce((a, p) => a + polygonArea(p.geometry), 0);
   return (
-    <aside className="panel">
+    <PanelShell>
       <section>
         <h2>{t('panel.selectedCount')}</h2>
         <div className="row">
@@ -205,6 +245,6 @@ export function PropertyPanel() {
         </>
       )}
       <SettingsSection />
-    </aside>
+    </PanelShell>
   );
 }

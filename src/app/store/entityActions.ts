@@ -1,17 +1,25 @@
-import { defaultEngine } from '../../geometry/geometryEngine';
+import { getEngine } from '../../geometry/geometryEngine';
 import { circleToRing, rectangleToRing } from '../../geometry/circle';
 import { translatePolygon } from '../../geometry/translate';
 import type { PolygonGeometry } from '../../geometry/types';
 import { createPolygonEntity } from '../projectFactory';
 import { copyEntities, pasteEntities } from '../clipboard';
+import { removeEntitiesFromGroups } from '../groups';
 import { isEntityEffectivelyLocked } from '../layers';
-import type { Entity, ProjectSettings, Unit } from '../projectTypes';
+import { parseProjectPointKey } from '../projectConstraints';
+import type {
+  Entity,
+  PolygonEntity,
+  ProjectSettings,
+  Unit,
+} from '../projectTypes';
 import {
   applyTransientGeometryUpdates,
   DUPLICATE_OFFSET_FACTOR,
   isPolygon,
+  resolveDrawingLayer,
   touchProject,
-  touchProjectSettings,
+  touchProjectUpdatedAt,
 } from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
 
@@ -23,7 +31,6 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
   | 'addCircle'
   | 'updateEntityGeometry'
   | 'updateEntityGeometryTransient'
-  | 'updateEntitiesGeometryTransient'
   | 'updateEntitiesTransient'
   | 'removeEntities'
   | 'duplicateSelected'
@@ -31,72 +38,98 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
   | 'updateSettings'
   | 'updateProjectUnit'
 > {
+  function updateEntitiesGeometryTransient(
+    updates: Map<string, PolygonGeometry>,
+  ): void {
+    set((state) => ({
+      project: applyTransientGeometryUpdates(state.project, updates),
+    }));
+  }
+
+  function constraintReferencesEntity(
+    constraint: NonNullable<AppState['project']['constraints']>[number],
+    removedIds: ReadonlySet<string>,
+  ): boolean {
+    const pointIds = (() => {
+      switch (constraint.kind) {
+        case 'length':
+        case 'horizontal':
+        case 'vertical':
+          return [constraint.a, constraint.b];
+        case 'angle':
+          return [constraint.a, constraint.vertex, constraint.b];
+        case 'parallel':
+        case 'perpendicular':
+          return [constraint.a1, constraint.a2, constraint.b1, constraint.b2];
+      }
+    })();
+    return pointIds.some((pointId) => {
+      const reference = parseProjectPointKey(pointId);
+      return reference ? removedIds.has(reference.entityId) : false;
+    });
+  }
+
+  function preparePolygonEntities(
+    geometries: PolygonGeometry[],
+    options: (geometry: PolygonGeometry) => {
+      metadata?: PolygonEntity['metadata'];
+      name?: string;
+    },
+  ): PolygonEntity[] {
+    const validation = getEngine().validate(geometries);
+    if (!validation.valid) {
+      get().setErrorMessage(`errors.validation.${validation.issues[0]}`);
+      return [];
+    }
+    const normalized = getEngine().normalize(geometries);
+    if (normalized.length === 0) {
+      get().setErrorMessage('errors.invalidPolygon');
+      return [];
+    }
+    const state = get();
+    const layer = resolveDrawingLayer(state.project, state.ui.activeLayerId);
+    if (!layer) {
+      get().setErrorMessage('errors.noDrawableLayer');
+      return [];
+    }
+    return normalized.map((geometry) =>
+      createPolygonEntity(geometry, {
+        ...options(geometry),
+        layerId: layer.id,
+      }),
+    );
+  }
+
+  function commitAddedEntities(entities: PolygonEntity[]): void {
+    if (entities.length === 0) return;
+    get().pushHistory();
+    set((state) => ({
+      project: touchProject(state.project, [
+        ...state.project.entities,
+        ...entities,
+      ]),
+      selectedEntityIds: entities.map((entity) => entity.id),
+    }));
+    for (const entity of entities) get().validateEntity(entity.id);
+  }
+
   return {
     addPolygonFromOuter: (outer, metadata) => {
-      const validation = defaultEngine.validate([{ outer, holes: [] }]);
-      if (!validation.valid) {
-        get().setErrorMessage(`errors.validation.${validation.issues[0]}`);
-        return null;
-      }
-      const ring = defaultEngine.normalize([{ outer, holes: [] }]);
-      if (ring.length === 0) {
-        get().setErrorMessage('errors.invalidPolygon');
-        return null;
-      }
-      const state = get();
-      const layer =
-        state.project.layers.find(
-          (layer) =>
-            layer.id === state.ui.activeLayerId && layer.visible && !layer.locked,
-        ) ?? state.project.layers.find((layer) => layer.visible && !layer.locked);
-      if (!layer) {
-        get().setErrorMessage('errors.noDrawableLayer');
-        return null;
-      }
-      get().pushHistory();
-      const layerId = layer.id;
-      const entity = createPolygonEntity(ring[0], { metadata, layerId });
-      set((s) => ({
-        project: touchProject(s.project, [...s.project.entities, entity]),
-        selectedEntityIds: [entity.id],
-      }));
-      get().validateEntity(entity.id);
+      const [entity] = preparePolygonEntities(
+        [{ outer, holes: [] }],
+        () => ({ metadata }),
+      );
+      if (!entity) return null;
+      commitAddedEntities([entity]);
       return entity;
     },
 
     importPolygonGeometries: (geometries) => {
       if (geometries.length === 0) return [];
-      const validation = defaultEngine.validate(geometries);
-      if (!validation.valid) {
-        get().setErrorMessage(`errors.validation.${validation.issues[0]}`);
-        return [];
-      }
-      const normalized = defaultEngine.normalize(geometries);
-      if (normalized.length === 0) {
-        get().setErrorMessage('errors.invalidPolygon');
-        return [];
-      }
-      const state = get();
-      const layer =
-        state.project.layers.find(
-          (candidate) =>
-            candidate.id === state.ui.activeLayerId && candidate.visible && !candidate.locked,
-        ) ?? state.project.layers.find((candidate) => candidate.visible && !candidate.locked);
-      if (!layer) {
-        get().setErrorMessage('errors.noDrawableLayer');
-        return [];
-      }
-      const entities = normalized.map((geometry) =>
-        createPolygonEntity(geometry, {
-          layerId: layer.id,
+      const entities = preparePolygonEntities(geometries, () => ({
           metadata: { sourceShape: 'svg-import', createdByOperation: 'import' },
-        }),
-      );
-      get().pushHistory();
-      set((current) => ({
-        project: touchProject(current.project, [...current.project.entities, ...entities]),
-        selectedEntityIds: entities.map((entity) => entity.id),
       }));
+      commitAddedEntities(entities);
       return entities;
     },
 
@@ -140,11 +173,7 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
     },
 
     updateEntityGeometryTransient: (id, geom) => {
-      get().updateEntitiesGeometryTransient(new Map([[id, geom]]));
-    },
-
-    updateEntitiesGeometryTransient: (updates: Map<string, PolygonGeometry>) => {
-      set((s) => ({ project: applyTransientGeometryUpdates(s.project, updates) }));
+      updateEntitiesGeometryTransient(new Map([[id, geom]]));
     },
 
     updateEntitiesTransient: (updates) => {
@@ -161,17 +190,26 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       if (ids.length === 0) return;
       const remove = new Set(ids);
       get().pushHistory();
-      set((s) => ({
-        project: touchProject(
+      set((s) => {
+        const project = touchProject(
           s.project,
           s.project.entities.filter((e) => !remove.has(e.id)),
-        ),
-        selectedEntityIds: s.selectedEntityIds.filter((id) => !remove.has(id)),
-        ui: {
-          ...s.ui,
-          invalidEntityIds: s.ui.invalidEntityIds.filter((id) => !remove.has(id)),
-        },
-      }));
+        );
+        return {
+          project: {
+            ...project,
+            groups: removeEntitiesFromGroups(s.project.groups ?? [], remove),
+            constraints: (s.project.constraints ?? []).filter(
+              (constraint) => !constraintReferencesEntity(constraint, remove),
+            ),
+          },
+          selectedEntityIds: s.selectedEntityIds.filter((id) => !remove.has(id)),
+          ui: {
+            ...s.ui,
+            invalidEntityIds: s.ui.invalidEntityIds.filter((id) => !remove.has(id)),
+          },
+        };
+      });
     },
 
     duplicateSelected: () => {
@@ -220,7 +258,7 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       if (!changed) return;
       get().pushHistory();
       set((s) => ({
-        project: touchProjectSettings({
+        project: touchProjectUpdatedAt({
           ...s.project,
           settings: { ...s.project.settings, ...partial },
         }),
@@ -231,7 +269,7 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       if (get().project.unit === unit) return;
       get().pushHistory();
       set((s) => ({
-        project: touchProjectSettings({ ...s.project, unit }),
+        project: touchProjectUpdatedAt({ ...s.project, unit }),
       }));
     },
   };

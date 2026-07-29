@@ -589,6 +589,40 @@ input[type='text'] {
   color: var(--fg-muted);
 }
 
+.cad-rulers {
+  user-select: none;
+}
+.cad-ruler-bg {
+  fill: var(--bg-panel);
+  fill-opacity: 0.94;
+  stroke: var(--border-default);
+  stroke-width: 1;
+}
+.cad-ruler-corner {
+  fill: var(--bg-toolbar);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.cad-ruler-tick {
+  stroke: var(--fg-muted);
+  stroke-width: 1;
+}
+.cad-ruler-text {
+  fill: var(--fg-muted);
+  font-size: 8px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  pointer-events: none;
+}
+
+.saved-dimension-text {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  paint-order: stroke;
+  stroke: var(--bg-canvas);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .context-menu {
   position: fixed;
   z-index: 90;
@@ -632,6 +666,23 @@ input[type='text'] {
 }
 .geometry-value-form input {
   text-align: right;
+}
+
+.underlay-editor + .underlay-editor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-default);
+}
+.underlay-transform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.underlay-transform-grid label {
+  display: grid;
+  gap: 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
 }
 
 @media (max-width: 720px) {

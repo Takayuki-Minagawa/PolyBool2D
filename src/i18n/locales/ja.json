@@ -16,13 +16,18 @@
     "projects": "プロジェクト",
     "importJson": "JSON読込",
     "importSvg": "SVG読込",
+    "importDxf": "DXF読込",
+    "importGeoJson": "GeoJSON読込",
+    "importUnderlay": "下絵読込",
     "exportJson": "JSON",
     "exportSvg": "SVG",
     "exportPng": "PNG",
     "exportDxf": "DXF",
+    "exportGeoJson": "GeoJSON",
     "exportCsvArea": "面積CSV",
     "exportCsvVertices": "頂点CSV",
     "share": "共有URL",
+    "sectionReport": "断面レポート",
     "theme": {
       "light": "ライト",
       "dark": "ダーク"
@@ -45,6 +50,9 @@
     "hole": "穴",
     "guideLine": "補助線",
     "measure": "測定",
+    "linearDimension": "線形寸法",
+    "angularDimension": "角度寸法",
+    "annotation": "注記",
     "knife": "ナイフ",
     "union": "結合",
     "difference": "くり抜き",
@@ -142,7 +150,39 @@
     "chamfer": "面取り",
     "fillet": "フィレット",
     "repair": "形状を修復",
-    "minimumBounds": "最小外接矩形"
+    "minimumBounds": "最小外接矩形",
+    "sectionProperties": "断面性能",
+    "secondMomentIx": "断面二次モーメント Ix",
+    "secondMomentIy": "断面二次モーメント Iy",
+    "sectionModulusX": "断面係数 Zx",
+    "sectionModulusY": "断面係数 Zy",
+    "radiusOfGyrationX": "回転半径 rx",
+    "radiusOfGyrationY": "回転半径 ry"
+    ,"workspaceExtras": "グループ・部品・拘束"
+    ,"groupSelection": "選択をグループ化"
+    ,"ungroupSelection": "選択のグループ解除"
+    ,"saveTemplate": "選択を部品として保存"
+    ,"insertTemplate": "最新の部品を配置"
+    ,"constraints": "パラメトリック拘束"
+    ,"edgeLength": "先頭辺の長さ"
+    ,"applyLengthConstraint": "長さを拘束"
+    ,"horizontalConstraint": "先頭辺を水平に"
+    ,"verticalConstraint": "先頭辺を垂直に"
+    ,"angleConstraint": "先頭3点の角度 (deg)"
+    ,"applyAngleConstraint": "角度を拘束"
+    ,"parallelConstraint": "2図形の先頭辺を平行に"
+    ,"perpendicularConstraint": "2図形の先頭辺を直交に"
+    ,"clearConstraints": "拘束をすべて解除"
+    ,"underlays": "下絵画像"
+    ,"noUnderlays": "下絵はありません。ヘッダーの「下絵読込」から追加できます。"
+    ,"visible": "表示"
+    ,"opacity": "透明度"
+    ,"underlay": {
+      "x": "X",
+      "y": "Y",
+      "scale": "縮尺",
+      "rotationDeg": "回転 (deg)"
+    }
   },
   "status": {
     "tool": "ツール",
@@ -159,14 +199,21 @@
     "guideHole": "ポリゴンを1つ選択し、内部リングを作図 / Enter確定",
     "guideGuideLine": "ドラッグで無限補助線を配置",
     "guideMeasure": "クリックで距離・角度・累積長を測定 / Enterでクリア",
+    "guideLinearDimension": "計測始点・終点・寸法線位置を順にクリック",
+    "guideAngularDimension": "中心・第1方向・第2方向を順にクリック",
+    "guideAnnotation": "配置位置をクリックして注記テキストを入力",
     "guideKnife": "図形を横切る直線をドラッグ / 離すと確定",
     "guideSelect": "図形をクリックして選択（Shift で追加）",
     "guidePan": "ドラッグで画面を移動 / ホイールでズーム",
     "guideVertex-edit": "頂点をドラッグで移動 / Alt+クリックで削除",
     "jsonImported": "「{{name}}」を読み込みました。",
     "svgImported": "SVGから{{count}}図形を読み込みました（警告: {{warnings}}件）。",
+    "dxfImported": "DXFから{{count}}図形を読み込みました（警告: {{warnings}}件）。",
+    "geoJsonImported": "GeoJSONから{{count}}図形を読み込みました（警告: {{warnings}}件）。",
+    "underlayImported": "下絵「{{name}}」を読み込みました。",
     "pngExported": "PNGを書き出しました。",
     "dxfExported": "DXFを書き出しました。",
+    "reportOpened": "断面性能レポートを開きました。",
     "shareCopied": "共有URLをクリップボードへコピーしました。",
     "projectLoaded": "「{{name}}」を開きました。"
   },
@@ -197,8 +244,14 @@
     },
     "importInvalid": "不正なJSONファイルです。",
     "svgImportInvalid": "SVGから読み込める図形が見つかりませんでした。",
+    "dxfImportInvalid": "DXFから読み込める図形が見つかりませんでした。",
+    "geoJsonImportInvalid": "GeoJSONから読み込める図形が見つかりませんでした。",
+    "underlayImportInvalid": "下絵画像を保存できませんでした。",
     "pngExportFailed": "PNGの書き出しに失敗しました。",
     "dxfExportFailed": "DXFの書き出しに失敗しました。",
+    "reportOpenFailed": "印刷用レポート画面を開けませんでした。",
+    "templateSaveFailed": "部品テンプレートを保存できませんでした。",
+    "constraintFailed": "拘束を解けませんでした。矛盾する拘束や固定点を確認してください。",
     "shareTooLarge": "プロジェクトが大きすぎるため共有URLを作成できません。",
     "shareClipboardFailed": "共有URLをクリップボードへコピーできませんでした。",
     "shareInvalid": "共有URLのプロジェクトデータが不正です。",

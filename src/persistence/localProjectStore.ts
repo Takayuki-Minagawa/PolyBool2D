@@ -286,17 +286,34 @@ export function deleteLocalProject(id: string): boolean {
   migrateLegacyProject();
   try {
     localStorage.removeItem(projectKey(id));
+  } catch {
+    return false;
+  }
+
+  // Once the project body is gone, all metadata is repairable. Quota/security
+  // errors while pruning backups or hints must not report a false deletion
+  // failure to the caller.
+  try {
     localStorage.removeItem(backupKey(id));
-    const remaining = readIndex().filter((entry) => entry.id !== id);
-    const indexSaved = writeIndex(remaining);
+  } catch {
+    // Best effort.
+  }
+  let remaining: StoredProjectSummary[] = [];
+  try {
+    remaining = readIndex().filter((entry) => entry.id !== id);
+    writeIndex(remaining);
+  } catch {
+    // Best effort.
+  }
+  try {
     if (localStorage.getItem(ACTIVE_PROJECT_KEY) === id) {
       if (remaining[0]) localStorage.setItem(ACTIVE_PROJECT_KEY, remaining[0].id);
       else localStorage.removeItem(ACTIVE_PROJECT_KEY);
     }
-    return indexSaved;
   } catch {
-    return false;
+    // listLocalProjects/loadProjectFromLocal can repair this hint later.
   }
+  return true;
 }
 
 export function duplicateLocalProject(id: string, name?: string): Project | null {

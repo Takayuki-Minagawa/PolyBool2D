@@ -3,7 +3,22 @@ import { EPS } from './types';
 
 export const EPS_SQ = EPS * EPS;
 
-const MIN_PARAMETER_TOLERANCE = 1e-12;
+/** Smallest tolerance used for normalized [0, 1] segment parameters. */
+export const MIN_PARAMETER_TOLERANCE = 1e-12;
+/** Dimensionless tolerance for parallel/collinear direction predicates. */
+export const DIRECTION_TOLERANCE = 1e-12;
+/** Smallest meaningful angular sweep in radians. */
+export const ARC_SWEEP_TOLERANCE = 1e-12;
+/** Angles closer than this to 0 or PI are treated as degenerate corners. */
+export const CORNER_ANGLE_TOLERANCE = 1e-8;
+/** Absolute fallback for area-weighted centroid calculations. */
+export const CENTROID_CROSS_TOLERANCE = 1e-18;
+/** Absolute fallback for area comparisons that have no ring scale available. */
+export const AREA_ABSOLUTE_TOLERANCE = 1e-12;
+/** Relative tolerance used when comparing two computed areas. */
+export const AREA_RELATIVE_TOLERANCE = 1e-12;
+/** Relative tolerance used to verify that a split preserves material area. */
+export const SPLIT_AREA_RELATIVE_TOLERANCE = 1e-8;
 
 export type CompensatedSum = {
   sum: number;
@@ -26,6 +41,29 @@ export function addCompensated(acc: CompensatedSum, value: number): void {
 
 export function compensatedTotal(acc: CompensatedSum): number {
   return acc.sum + acc.correction;
+}
+
+export function isFinitePoint(point: Point): boolean {
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+export function isFiniteRing(ring: readonly Point[]): boolean {
+  return ring.every(isFinitePoint);
+}
+
+export function scaledTolerance(
+  relativeTolerance: number,
+  ...values: readonly number[]
+): number {
+  let scale = 1;
+  for (const value of values) {
+    if (Number.isFinite(value)) scale = Math.max(scale, Math.abs(value));
+  }
+  return relativeTolerance * scale;
+}
+
+export function areaComparisonTolerance(...areas: readonly number[]): number {
+  return scaledTolerance(AREA_RELATIVE_TOLERANCE, ...areas);
 }
 
 export function clamp(value: number, min: number, max: number): number {

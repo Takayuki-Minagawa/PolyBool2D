@@ -12,6 +12,38 @@ export type CommandShortcutDefinition = {
   labelKey: string;
 };
 
+export type ToolBehavior<TContext> = {
+  onPointerDown?: (context: TContext) => boolean | void;
+  onPointerMove?: (context: TContext) => boolean | void;
+  onPointerUp?: (context: TContext) => boolean | void;
+  cancel?: () => void;
+};
+
+export class ToolBehaviorRegistry<TContext> {
+  private readonly behaviors = new Map<ToolName, ToolBehavior<TContext>>();
+
+  register(tool: ToolName, behavior: ToolBehavior<TContext>): this {
+    this.behaviors.set(tool, behavior);
+    return this;
+  }
+
+  get(tool: ToolName): ToolBehavior<TContext> | undefined {
+    return this.behaviors.get(tool);
+  }
+
+  dispatch(
+    tool: ToolName,
+    phase: 'onPointerDown' | 'onPointerMove' | 'onPointerUp',
+    context: TContext,
+  ): boolean {
+    return this.behaviors.get(tool)?.[phase]?.(context) === true;
+  }
+
+  cancelAll(): void {
+    for (const behavior of this.behaviors.values()) behavior.cancel?.();
+  }
+}
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: 'select', key: 'V', labelKey: 'toolbar.select', guideKey: 'status.guideSelect' },
   { name: 'pan', key: 'H', labelKey: 'toolbar.pan', guideKey: 'status.guidePan' },
@@ -29,6 +61,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     guideKey: 'status.guideGuideLine',
   },
   { name: 'measure', key: 'M', labelKey: 'toolbar.measure', guideKey: 'status.guideMeasure' },
+  {
+    name: 'linear-dimension',
+    key: 'N',
+    labelKey: 'toolbar.linearDimension',
+    guideKey: 'status.guideLinearDimension',
+  },
+  {
+    name: 'angular-dimension',
+    key: 'J',
+    labelKey: 'toolbar.angularDimension',
+    guideKey: 'status.guideAngularDimension',
+  },
+  {
+    name: 'annotation',
+    key: 'T',
+    labelKey: 'toolbar.annotation',
+    guideKey: 'status.guideAnnotation',
+  },
   {
     name: 'vertex-edit',
     key: 'E',

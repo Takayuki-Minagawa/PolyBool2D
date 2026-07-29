@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { useAppStore } from '../../app/appStore';
 import manualJaUrl from '../../i18n/manual.ja.md?url';
 import manualEnUrl from '../../i18n/manual.en.md?url';
+import { useModalDismiss } from '../common/useModalDismiss';
 
 export function ManualModal() {
   const { t } = useTranslation();
@@ -13,6 +14,7 @@ export function ManualModal() {
   const language = useAppStore((s) => s.ui.language);
   const [content, setContent] = useState('');
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -37,30 +39,23 @@ export function ManualModal() {
     };
   }, [open, language]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    closeButtonRef.current?.focus();
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
-    };
-  }, [open, setOpen]);
+  useModalDismiss({
+    open,
+    onDismiss: () => setOpen(false),
+    containerRef: dialogRef,
+    initialFocusRef: closeButtonRef,
+  });
 
   if (!open) return null;
   return (
     <div className="modal-overlay" role="presentation" onClick={() => setOpen(false)}>
       <div
+        ref={dialogRef}
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="manual-modal-title"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <header>

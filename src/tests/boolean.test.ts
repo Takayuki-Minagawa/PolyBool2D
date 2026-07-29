@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultEngine } from '../geometry/geometryEngine';
+import { getEngine } from '../geometry/geometryEngine';
 import { rectangleToRing, circleToRing } from '../geometry/circle';
 import { multiPolygonArea } from '../geometry/area';
 
@@ -7,7 +7,7 @@ describe('boolean operations', () => {
   it('unions two overlapping squares into one polygon', () => {
     const a = { outer: rectangleToRing({ x: 0, y: 0 }, { x: 100, y: 100 }), holes: [] };
     const b = { outer: rectangleToRing({ x: 50, y: 0 }, { x: 150, y: 100 }), holes: [] };
-    const r = defaultEngine.union([a, b]);
+    const r = getEngine().union([a, b]);
     expect(r.length).toBe(1);
     const expected = 100 * 150;
     expect(multiPolygonArea(r)).toBeCloseTo(expected, 4);
@@ -19,7 +19,7 @@ describe('boolean operations', () => {
       holes: [],
     };
     const circle = { outer: circleToRing({ x: 500, y: 500 }, 200, 64), holes: [] };
-    const r = defaultEngine.difference([square], [circle]);
+    const r = getEngine().difference([square], [circle]);
     expect(r.length).toBe(1);
     const expected = 1000 * 1000 - Math.PI * 200 * 200;
     const got = multiPolygonArea(r);
@@ -31,7 +31,7 @@ describe('boolean operations', () => {
   it('returns empty when difference removes everything', () => {
     const inner = { outer: rectangleToRing({ x: 10, y: 10 }, { x: 90, y: 90 }), holes: [] };
     const big = { outer: rectangleToRing({ x: 0, y: 0 }, { x: 100, y: 100 }), holes: [] };
-    const r = defaultEngine.difference([inner], [big]);
+    const r = getEngine().difference([inner], [big]);
     expect(r.length).toBe(0);
   });
 });

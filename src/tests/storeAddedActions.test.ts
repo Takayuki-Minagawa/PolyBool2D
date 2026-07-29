@@ -4,6 +4,8 @@ import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
 import type { PolygonEntity } from '../app/projectTypes';
 import { rectangleToRing } from '../geometry/circle';
 import { polygonArea } from '../geometry/area';
+import { createEntityGroup } from '../app/groups';
+import { projectPointKey } from '../app/projectConstraints';
 
 function resetStore(): void {
   const project = createEmptyProject();
@@ -236,6 +238,78 @@ describe('hole, primitive and validation store actions', () => {
     expect(useAppStore.getState().ui.errorMessage).toBe('errors.invalidLine');
     expect(useAppStore.getState().project.entities).toEqual([]);
     expect(useAppStore.getState().history.past).toEqual([]);
+  });
+
+  it('adds saved dimensions and annotations through the store', () => {
+    const linear = useAppStore.getState().addLinearEntity(
+      [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 3 }],
+      'linear-dimension',
+      { precision: 2, textHeight: 2.5 },
+    );
+    const angular = useAppStore.getState().addLinearEntity(
+      [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }],
+      'angular-dimension',
+      { precision: 1, textHeight: 2.5 },
+    );
+    const annotation = useAppStore.getState().addLinearEntity(
+      [{ x: 4, y: 6 }],
+      'annotation',
+      { label: 'Column A', rotationDeg: 15, textHeight: 3 },
+    );
+
+    expect(linear).toMatchObject({ kind: 'linear-dimension', precision: 2 });
+    expect(angular).toMatchObject({ kind: 'angular-dimension', precision: 1 });
+    expect(annotation).toMatchObject({
+      kind: 'annotation',
+      label: 'Column A',
+      rotationDeg: 15,
+    });
+    expect(useAppStore.getState().project.entities).toHaveLength(3);
+    expect(useAppStore.getState().history.past).toHaveLength(3);
+
+    useAppStore.getState().undo();
+    expect(
+      useAppStore.getState().project.entities.some(
+        (entity) => entity.type === 'guide-line' && entity.kind === 'annotation',
+      ),
+    ).toBe(false);
+  });
+
+  it('cleans groups and constraints when referenced entities are deleted', () => {
+    const first = useAppStore.getState().addRectangle(
+      { x: 0, y: 0 },
+      { x: 10, y: 10 },
+    )!;
+    const second = useAppStore.getState().addRectangle(
+      { x: 20, y: 0 },
+      { x: 30, y: 10 },
+    )!;
+    const group = createEntityGroup([first.id, second.id], 'Pair')!;
+    const a = projectPointKey({
+      entityId: first.id,
+      ring: 'outer',
+      pointIndex: 0,
+    });
+    const b = projectPointKey({
+      entityId: first.id,
+      ring: 'outer',
+      pointIndex: 1,
+    });
+    useAppStore.setState((state) => ({
+      project: {
+        ...state.project,
+        groups: [group],
+        constraints: [{ id: 'edge', kind: 'horizontal', a, b }],
+      },
+      history: { past: [], future: [] },
+    }));
+
+    useAppStore.getState().removeEntities([first.id]);
+    expect(useAppStore.getState().project.groups).toEqual([]);
+    expect(useAppStore.getState().project.constraints).toEqual([]);
+    useAppStore.getState().undo();
+    expect(useAppStore.getState().project.groups).toEqual([group]);
+    expect(useAppStore.getState().project.constraints).toHaveLength(1);
   });
 
   it('marks invalid geometry, supports undo/redo of the model, and can revalidate after redo', () => {

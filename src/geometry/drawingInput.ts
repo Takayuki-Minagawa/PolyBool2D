@@ -1,4 +1,5 @@
 import type { Point } from './types';
+import { isFinitePoint } from './numeric';
 
 /**
  * Place a point at an exact distance from an anchor while preserving the
@@ -10,10 +11,8 @@ export function pointAtDistance(
   distance: number,
 ): Point | null {
   if (
-    !Number.isFinite(anchor.x) ||
-    !Number.isFinite(anchor.y) ||
-    !Number.isFinite(directionPoint.x) ||
-    !Number.isFinite(directionPoint.y) ||
+    !isFinitePoint(anchor) ||
+    !isFinitePoint(directionPoint) ||
     !Number.isFinite(distance) ||
     distance <= 0
   ) {

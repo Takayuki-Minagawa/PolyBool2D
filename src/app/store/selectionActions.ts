@@ -1,5 +1,6 @@
 import type { ViewTransform } from '../projectTypes';
 import { isEntityEffectivelyLocked, isEntityEffectivelyVisible } from '../layers';
+import { expandGroupedSelection, type EntityGroup } from '../groups';
 import type { AppSet, AppState } from './types';
 
 export function createSelectionActions(set: AppSet): Pick<
@@ -35,14 +36,39 @@ export function createSelectionActions(set: AppSet): Pick<
         ) {
           return s;
         }
-        if (!additive) return { selectedEntityIds: [id] };
-        if (s.selectedEntityIds.includes(id)) {
-          return { selectedEntityIds: s.selectedEntityIds.filter((x) => x !== id) };
+        const groups = (
+          s.project as typeof s.project & { groups?: EntityGroup[] }
+        ).groups ?? [];
+        if (!additive) {
+          return {
+            selectedEntityIds: expandGroupedSelection([id], groups),
+          };
         }
-        return { selectedEntityIds: [...s.selectedEntityIds, id] };
+        if (s.selectedEntityIds.includes(id)) {
+          const groupedIds = new Set(expandGroupedSelection([id], groups));
+          return {
+            selectedEntityIds: s.selectedEntityIds.filter(
+              (selectedId) => !groupedIds.has(selectedId),
+            ),
+          };
+        }
+        return {
+          selectedEntityIds: expandGroupedSelection(
+            [...s.selectedEntityIds, id],
+            groups,
+          ),
+        };
       }),
 
-    selectMany: (ids) => set({ selectedEntityIds: ids }),
+    selectMany: (ids) =>
+      set((state) => ({
+        selectedEntityIds: expandGroupedSelection(
+          ids,
+          (
+            state.project as typeof state.project & { groups?: EntityGroup[] }
+          ).groups ?? [],
+        ),
+      })),
 
     selectAll: () =>
       set((s) => ({

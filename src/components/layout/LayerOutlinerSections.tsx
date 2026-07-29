@@ -5,6 +5,7 @@ import {
   isEntityEffectivelyLocked,
   isEntityEffectivelyVisible,
 } from '../../app/layers';
+import { CommitInput } from '../common/CommitInput';
 
 type InlineNameInputProps = {
   value: string;
@@ -13,42 +14,17 @@ type InlineNameInputProps = {
 };
 
 function InlineNameInput({ value, label, onCommit }: InlineNameInputProps) {
-  const [text, setText] = useState(value);
-
-  useEffect(() => {
-    setText(value);
-  }, [value]);
-
-  function reset() {
-    setText(value);
-  }
-
-  function commit() {
-    const next = text.trim();
-    if (!next) {
-      reset();
-      return;
-    }
-    if (next !== value) onCommit(next);
-    setText(next);
-  }
-
   return (
-    <input
+    <CommitInput
       type="text"
       aria-label={label}
-      value={text}
+      value={value}
       onClick={(event) => event.stopPropagation()}
-      onChange={(event) => setText(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === 'Enter') {
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          reset();
-          event.currentTarget.blur();
-        }
+      normalize={(next) => next.trim()}
+      onCommit={(next) => {
+        if (!next) return false;
+        if (next !== value) onCommit(next);
+        return true;
       }}
     />
   );

@@ -1,4 +1,5 @@
 import type { Point, Ring } from './types';
+import { isFinitePoint } from './numeric';
 
 export function circleToRing(
   center: Point,
@@ -6,8 +7,7 @@ export function circleToRing(
   segments: number,
 ): Ring {
   if (
-    !Number.isFinite(center.x) ||
-    !Number.isFinite(center.y) ||
+    !isFinitePoint(center) ||
     !Number.isFinite(radius) ||
     radius <= 0 ||
     !Number.isFinite(segments)
@@ -28,10 +28,8 @@ export function circleToRing(
 
 export function rectangleToRing(p1: Point, p2: Point): Ring {
   if (
-    !Number.isFinite(p1.x) ||
-    !Number.isFinite(p1.y) ||
-    !Number.isFinite(p2.x) ||
-    !Number.isFinite(p2.y)
+    !isFinitePoint(p1) ||
+    !isFinitePoint(p2)
   ) {
     return [];
   }

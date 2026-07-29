@@ -1,4 +1,7 @@
 import type { PolygonGeometry, Point } from '../geometry/types';
+import type { EntityGroup } from './groups';
+import type { ParametricConstraint } from '../geometry/constraints';
+import packageMetadata from '../../package.json';
 
 export type Unit = 'mm' | 'cm' | 'm';
 
@@ -71,7 +74,13 @@ export type PolygonEntity = {
   };
 };
 
-export type LinearEntityKind = 'guide' | 'polyline' | 'arc';
+export type LinearEntityKind =
+  | 'guide'
+  | 'polyline'
+  | 'arc'
+  | 'linear-dimension'
+  | 'angular-dimension'
+  | 'annotation';
 
 export type LineStyle = {
   stroke: string;
@@ -79,19 +88,40 @@ export type LineStyle = {
   opacity: number;
 };
 
-export type GuideLineEntity = {
+/**
+ * Canonical non-polygon entity.
+ *
+ * Persisted point semantics:
+ * - linear-dimension: measured start, measured end, dimension-line anchor
+ * - angular-dimension: center, first ray, second ray, optional radius anchor
+ * - annotation: insertion point
+ *
+ * The runtime discriminator stays `guide-line` for file and UI compatibility.
+ */
+export type LinearEntity = {
   id: string;
   type: 'guide-line';
   name: string;
   kind: LinearEntityKind;
   layerId: string;
   points: Point[];
+  /** Custom dimension label or annotation text. */
+  label?: string;
+  /** Decimal precision for a generated dimension label. */
+  precision?: number;
+  /** Text height in project coordinate units. */
+  textHeight?: number;
+  /** Counter-clockwise world rotation, primarily for annotations. */
+  rotationDeg?: number;
   style: LineStyle;
   locked: boolean;
   visible: boolean;
 };
 
-export type Entity = PolygonEntity | GuideLineEntity;
+/** @deprecated Use LinearEntity. */
+export type GuideLineEntity = LinearEntity;
+
+export type Entity = PolygonEntity | LinearEntity;
 
 export type Project = {
   id: string;
@@ -103,6 +133,8 @@ export type Project = {
   settings: ProjectSettings;
   layers: Layer[];
   entities: Entity[];
+  groups?: EntityGroup[];
+  constraints?: ParametricConstraint[];
 };
 
 export type ToolName =
@@ -117,6 +149,9 @@ export type ToolName =
   | 'hole'
   | 'guide-line'
   | 'measure'
+  | 'linear-dimension'
+  | 'angular-dimension'
+  | 'annotation'
   | 'vertex-edit'
   | 'knife';
 
@@ -133,7 +168,8 @@ export type ViewTransform = {
   offsetY: number;
 };
 
-export const APP_VERSION = '0.2.0';
+/** Single source of truth: the application/package version declared at the repository root. */
+export const APP_VERSION = packageMetadata.version;
 
 export const DEFAULT_SETTINGS: ProjectSettings = {
   gridSize: 100,

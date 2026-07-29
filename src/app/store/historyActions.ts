@@ -1,7 +1,7 @@
 import { createEmptyProject } from '../projectFactory';
 import type { Project } from '../projectTypes';
 import { validatePolygon } from '../../geometry/validation';
-import { clone, HISTORY_LIMIT } from './helpers';
+import { clone, HISTORY_LIMIT, resolveDrawingLayer } from './helpers';
 import type { AppSet, AppState } from './types';
 
 function invalidEntityIds(project: Project): string[] {
@@ -13,13 +13,7 @@ function invalidEntityIds(project: Project): string[] {
 }
 
 function drawingLayerId(project: Project, preferred?: string): string {
-  return (
-    project.layers.find(
-      (layer) => layer.id === preferred && layer.visible && !layer.locked,
-    )?.id ??
-    project.layers.find((layer) => layer.visible && !layer.locked)?.id ??
-    project.layers[0].id
-  );
+  return resolveDrawingLayer(project, preferred)?.id ?? project.layers[0]?.id ?? '';
 }
 
 export function createHistoryActions(set: AppSet): Pick<
@@ -31,7 +25,10 @@ export function createHistoryActions(set: AppSet): Pick<
       set((s) => {
         const past = [...s.history.past, clone(s.project)];
         while (past.length > HISTORY_LIMIT) past.shift();
-        return { history: { past, future: [] } };
+        return {
+          history: { past, future: [] },
+          snapRevision: s.snapRevision + 1,
+        };
       }),
 
     undo: () =>
@@ -44,6 +41,7 @@ export function createHistoryActions(set: AppSet): Pick<
         const activeLayerId = drawingLayerId(prev, s.ui.activeLayerId);
         return {
           project: prev,
+          snapRevision: s.snapRevision + 1,
           history: { past, future },
           selectedEntityIds: [],
           ui: { ...s.ui, activeLayerId, invalidEntityIds: invalidEntityIds(prev) },
@@ -59,6 +57,7 @@ export function createHistoryActions(set: AppSet): Pick<
         const activeLayerId = drawingLayerId(next, s.ui.activeLayerId);
         return {
           project: next,
+          snapRevision: s.snapRevision + 1,
           history: { past, future },
           selectedEntityIds: [],
           ui: { ...s.ui, activeLayerId, invalidEntityIds: invalidEntityIds(next) },
@@ -70,6 +69,7 @@ export function createHistoryActions(set: AppSet): Pick<
         const project = createEmptyProject();
         return {
           project,
+          snapRevision: state.snapRevision + 1,
           selectedEntityIds: [],
           history: { past: [], future: [] },
           ui: {
@@ -83,6 +83,7 @@ export function createHistoryActions(set: AppSet): Pick<
     loadProject: (p: Project) =>
       set((state) => ({
         project: p,
+        snapRevision: state.snapRevision + 1,
         selectedEntityIds: [],
         history: { past: [], future: [] },
         preview: { type: 'none' },

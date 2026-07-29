@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { PolygonEntity, ViewTransform } from '../../app/projectTypes';
 import { worldToScreen } from '../../app/transform';
 
@@ -25,7 +26,7 @@ function ringToPath(ring: { x: number; y: number }[], view: ViewTransform): stri
   );
 }
 
-export function PolygonShape({
+export const PolygonShape = memo(function PolygonShape({
   entity,
   view,
   selected,
@@ -61,4 +62,4 @@ export function PolygonShape({
       style={{ cursor: locked ? 'not-allowed' : 'pointer' }}
     />
   );
-}
+});

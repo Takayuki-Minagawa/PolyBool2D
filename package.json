@@ -1,9 +1,10 @@
 {
   "name": "polybool2d",
   "private": true,
-  "version": "0.2.0",
+  "license": "UNLICENSED",
+  "version": "0.3.0",
   "type": "module",
-  "description": "2D polygon CAD web app for area calculation (boolean ops, knife split).",
+  "description": "Offline 2D polygon CAD with robust geometry, interoperability, dimensions, and section analysis.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -13,8 +14,8 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "clipper2-ts": "^2.0.1-18",
     "i18next": "^23.15.1",
-    "i18next-browser-languagedetector": "^8.0.0",
     "polygon-clipping": "^0.15.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

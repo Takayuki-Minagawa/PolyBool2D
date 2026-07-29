@@ -1,0 +1,20 @@
+{
+  "name": "PolyBool2D — 2D CAD",
+  "short_name": "PolyBool2D",
+  "description": "Offline-capable 2D polygon CAD for boolean operations and structural area calculations.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111827",
+  "theme_color": "#1f2933",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

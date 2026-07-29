@@ -1,14 +1,49 @@
-import { defaultEngine } from './polygonClippingEngine';
-import type { MultiPolygonGeometry, PolygonGeometry, Ring } from './types';
+import { getEngine } from './geometryEngine';
+import { isFiniteRing } from './numeric';
+import type {
+  GeometryOperationResult,
+  MultiPolygonGeometry,
+  PolygonGeometry,
+  Ring,
+} from './types';
 
-function ringIsFinite(ring: Ring): boolean {
+export type RepairFailureReason = 'invalid-input' | 'engine-error';
+export type RepairResult = GeometryOperationResult<
+  MultiPolygonGeometry,
+  RepairFailureReason
+>;
+
+function successful(value: MultiPolygonGeometry): RepairResult {
+  return { ok: true, value, diagnostics: [] };
+}
+
+function failed(
+  reason: RepairFailureReason,
+  message: string,
+): RepairResult {
+  return { ok: false, value: [], reason, message, diagnostics: [] };
+}
+
+function caughtMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function validRingInput(ring: Ring): boolean {
+  return ring.length >= 3 && isFiniteRing(ring);
+}
+
+function validPolygonInput(polygon: PolygonGeometry): boolean {
   return (
-    ring.length >= 3 &&
-    ring.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    validRingInput(polygon.outer) &&
+    polygon.holes.every(validRingInput)
   );
 }
-function polygonIsFinite(polygon: PolygonGeometry): boolean {
-  return ringIsFinite(polygon.outer) && polygon.holes.every(ringIsFinite);
+
+function repairWithActiveEngine(
+  polygons: MultiPolygonGeometry,
+): MultiPolygonGeometry {
+  const engine = getEngine();
+  return engine.repair?.(polygons) ?? engine.union(polygons);
 }
 
 /**
@@ -17,8 +52,17 @@ function polygonIsFinite(polygon: PolygonGeometry): boolean {
  * bow-tie ring becomes two polygons).
  */
 export function repairRing(ring: Ring): MultiPolygonGeometry {
-  if (!ringIsFinite(ring)) return [];
-  return repairPolygon({ outer: ring, holes: [] });
+  return repairRingResult(ring).value;
+}
+
+export function repairRingResult(ring: Ring): RepairResult {
+  if (!validRingInput(ring)) {
+    return failed(
+      'invalid-input',
+      'A repair ring needs at least three finite points.',
+    );
+  }
+  return repairPolygonResult({ outer: ring, holes: [] });
 }
 
 /**
@@ -27,11 +71,23 @@ export function repairRing(ring: Ring): MultiPolygonGeometry {
  * result instead of leaking library exceptions into editing workflows.
  */
 export function repairPolygon(polygon: PolygonGeometry): MultiPolygonGeometry {
-  if (!polygonIsFinite(polygon)) return [];
+  return repairPolygonResult(polygon).value;
+}
+
+export function repairPolygonResult(polygon: PolygonGeometry): RepairResult {
+  if (!validPolygonInput(polygon)) {
+    return failed(
+      'invalid-input',
+      'A repair polygon needs finite rings with at least three points.',
+    );
+  }
   try {
-    return defaultEngine.union([polygon]);
-  } catch {
-    return [];
+    return successful(repairWithActiveEngine([polygon]));
+  } catch (error) {
+    return failed(
+      'engine-error',
+      `The geometry engine could not repair the polygon: ${caughtMessage(error)}`,
+    );
   }
 }
 
@@ -39,10 +95,25 @@ export function repairPolygon(polygon: PolygonGeometry): MultiPolygonGeometry {
 export function repairMultiPolygon(
   polygons: MultiPolygonGeometry,
 ): MultiPolygonGeometry {
-  if (polygons.length === 0 || !polygons.every(polygonIsFinite)) return [];
+  return repairMultiPolygonResult(polygons).value;
+}
+
+export function repairMultiPolygonResult(
+  polygons: MultiPolygonGeometry,
+): RepairResult {
+  if (polygons.length === 0) return successful([]);
+  if (!polygons.every(validPolygonInput)) {
+    return failed(
+      'invalid-input',
+      'Every repair polygon needs finite rings with at least three points.',
+    );
+  }
   try {
-    return defaultEngine.union(polygons);
-  } catch {
-    return [];
+    return successful(repairWithActiveEngine(polygons));
+  } catch (error) {
+    return failed(
+      'engine-error',
+      `The geometry engine could not repair the polygons: ${caughtMessage(error)}`,
+    );
   }
 }

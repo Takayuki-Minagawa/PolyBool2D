@@ -1,7 +1,13 @@
-import type { GuideLineEntity, Layer, PolygonEntity, Project, Unit } from '../app/projectTypes';
+import type { Layer, LinearEntity, PolygonEntity, Project, Unit } from '../app/projectTypes';
 import type { Point } from '../geometry/types';
 import { downloadText, timestamp } from './download';
 import { isEntityEffectivelyVisible } from '../app/layers';
+import {
+  dimensionLabel,
+  entityTextHeight,
+  resolveAngularDimension,
+  resolveLinearDimension,
+} from './dimensionExport';
 
 const INSUNITS: Record<Unit, number> = {
   mm: 4,
@@ -67,6 +73,53 @@ function appendPolyline(
   }
 }
 
+function appendLine(
+  lines: string[],
+  start: Point,
+  end: Point,
+  layerName: string,
+): void {
+  pair(lines, 0, 'LINE');
+  pair(lines, 100, 'AcDbEntity');
+  pair(lines, 8, layerName);
+  pair(lines, 100, 'AcDbLine');
+  pair(lines, 10, dxfNumber(start.x));
+  pair(lines, 20, dxfNumber(start.y));
+  pair(lines, 30, 0);
+  pair(lines, 11, dxfNumber(end.x));
+  pair(lines, 21, dxfNumber(end.y));
+  pair(lines, 31, 0);
+}
+
+function dxfText(value: string): string {
+  return value
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .trim()
+    .slice(0, 2048);
+}
+
+function appendText(
+  lines: string[],
+  text: string,
+  position: Point,
+  height: number,
+  rotationDeg: number,
+  layerName: string,
+): void {
+  const safeText = dxfText(text);
+  if (!safeText) return;
+  pair(lines, 0, 'TEXT');
+  pair(lines, 100, 'AcDbEntity');
+  pair(lines, 8, layerName);
+  pair(lines, 100, 'AcDbText');
+  pair(lines, 10, dxfNumber(position.x));
+  pair(lines, 20, dxfNumber(position.y));
+  pair(lines, 30, 0);
+  pair(lines, 40, dxfNumber(height));
+  pair(lines, 1, safeText);
+  pair(lines, 50, dxfNumber(rotationDeg));
+}
+
 function polygons(project: Project): PolygonEntity[] {
   return project.entities.filter(
     (entity): entity is PolygonEntity =>
@@ -74,13 +127,67 @@ function polygons(project: Project): PolygonEntity[] {
   );
 }
 
-function linearEntities(project: Project): GuideLineEntity[] {
+function linearEntities(project: Project): LinearEntity[] {
   return project.entities.filter(
-    (entity): entity is GuideLineEntity =>
+    (entity): entity is LinearEntity =>
       entity.type === 'guide-line' &&
       entity.kind !== 'guide' &&
       isEntityEffectivelyVisible(project, entity),
   );
+}
+
+function appendLinearEntity(
+  lines: string[],
+  entity: LinearEntity,
+  project: Project,
+  layerName: string,
+): void {
+  if (entity.kind === 'annotation') {
+    const insertionPoint = entity.points[0];
+    if (!insertionPoint) return;
+    appendText(
+      lines,
+      entity.label ?? entity.name,
+      insertionPoint,
+      entityTextHeight(entity),
+      entity.rotationDeg ?? 0,
+      layerName,
+    );
+    return;
+  }
+  if (entity.kind === 'linear-dimension') {
+    const geometry = resolveLinearDimension(entity);
+    if (!geometry) return;
+    appendLine(lines, geometry.extensionStart[0], geometry.extensionStart[1], layerName);
+    appendLine(lines, geometry.extensionEnd[0], geometry.extensionEnd[1], layerName);
+    appendLine(lines, geometry.dimensionStart, geometry.dimensionEnd, layerName);
+    appendText(
+      lines,
+      dimensionLabel(entity, project.unit, project.settings.coordinatePrecision),
+      geometry.labelPosition,
+      entityTextHeight(entity),
+      (geometry.angleRad * 180) / Math.PI,
+      layerName,
+    );
+    return;
+  }
+  if (entity.kind === 'angular-dimension') {
+    const geometry = resolveAngularDimension(entity);
+    if (!geometry) return;
+    appendLine(lines, geometry.center, geometry.arcPoints[0], layerName);
+    appendLine(lines, geometry.center, geometry.arcPoints.at(-1)!, layerName);
+    appendPolyline(lines, geometry.arcPoints, layerName, false);
+    appendText(
+      lines,
+      dimensionLabel(entity, project.unit, project.settings.coordinatePrecision),
+      geometry.labelPosition,
+      entityTextHeight(entity),
+      0,
+      layerName,
+    );
+    return;
+  }
+  appendPolyline(lines, entity.points, layerName, false);
 }
 
 /**
@@ -129,7 +236,12 @@ export function buildDxf(project: Project): string {
     for (const hole of polygon.geometry.holes) appendPolyline(lines, hole, layerName, true);
   }
   for (const entity of linearEntities(project)) {
-    appendPolyline(lines, entity.points, layerNames.get(entity.layerId) ?? '0', false);
+    appendLinearEntity(
+      lines,
+      entity,
+      project,
+      layerNames.get(entity.layerId) ?? '0',
+    );
   }
   pair(lines, 0, 'ENDSEC');
   pair(lines, 0, 'EOF');

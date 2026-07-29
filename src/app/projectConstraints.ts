@@ -1,0 +1,147 @@
+import {
+  solveConstraints,
+  type ConstraintSolveOptions,
+  type ConstraintSolveResult,
+  type ParametricConstraint,
+} from '../geometry/constraints';
+import type { Point } from '../geometry/types';
+import type { Entity, Project } from './projectTypes';
+
+export type ProjectPointRef =
+  | {
+      entityId: string;
+      ring: 'outer';
+      pointIndex: number;
+    }
+  | {
+      entityId: string;
+      ring: 'hole';
+      holeIndex: number;
+      pointIndex: number;
+    }
+  | {
+      entityId: string;
+      ring: 'linear';
+      pointIndex: number;
+    };
+
+export type ProjectConstraintResult =
+  | (Extract<ConstraintSolveResult, { ok: true }> & { project: Project })
+  | (Extract<ConstraintSolveResult, { ok: false }> & { project: Project });
+
+export function projectPointKey(ref: ProjectPointRef): string {
+  return ref.ring === 'hole'
+    ? `${ref.entityId}|hole|${ref.holeIndex}|${ref.pointIndex}`
+    : `${ref.entityId}|${ref.ring}|${ref.pointIndex}`;
+}
+
+export function parseProjectPointKey(key: string): ProjectPointRef | null {
+  const parts = key.split('|');
+  const indexFrom = (value: string): number | null => {
+    if (!/^(?:0|[1-9]\d*)$/.test(value)) return null;
+    const index = Number(value);
+    return Number.isSafeInteger(index) ? index : null;
+  };
+  const ring = parts.at(-2);
+  if (parts.length >= 3 && (ring === 'outer' || ring === 'linear')) {
+    const pointIndex = indexFrom(parts.at(-1)!);
+    const entityId = parts.slice(0, -2).join('|');
+    return entityId && pointIndex !== null
+      ? { entityId, ring, pointIndex }
+      : null;
+  }
+  if (parts.length >= 4 && parts.at(-3) === 'hole') {
+    const holeIndex = indexFrom(parts.at(-2)!);
+    const pointIndex = indexFrom(parts.at(-1)!);
+    const entityId = parts.slice(0, -3).join('|');
+    return entityId && holeIndex !== null && pointIndex !== null
+      ? { entityId, ring: 'hole', holeIndex, pointIndex }
+      : null;
+  }
+  return null;
+}
+
+export function projectConstraintPoints(project: Project): Record<string, Point> {
+  const result: Record<string, Point> = {};
+  for (const entity of project.entities) {
+    if (entity.type === 'polygon') {
+      entity.geometry.outer.forEach((point, pointIndex) => {
+        result[projectPointKey({ entityId: entity.id, ring: 'outer', pointIndex })] = {
+          ...point,
+        };
+      });
+      entity.geometry.holes.forEach((hole, holeIndex) => {
+        hole.forEach((point, pointIndex) => {
+          result[projectPointKey({
+            entityId: entity.id,
+            ring: 'hole',
+            holeIndex,
+            pointIndex,
+          })] = { ...point };
+        });
+      });
+    } else {
+      entity.points.forEach((point, pointIndex) => {
+        result[projectPointKey({ entityId: entity.id, ring: 'linear', pointIndex })] = {
+          ...point,
+        };
+      });
+    }
+  }
+  return result;
+}
+
+function updateEntity(
+  entity: Entity,
+  solved: Readonly<Record<string, Point>>,
+): Entity {
+  if (entity.type === 'polygon') {
+    return {
+      ...entity,
+      geometry: {
+        outer: entity.geometry.outer.map((point, pointIndex) =>
+          solved[projectPointKey({ entityId: entity.id, ring: 'outer', pointIndex })]
+            ?? point,
+        ),
+        holes: entity.geometry.holes.map((hole, holeIndex) =>
+          hole.map((point, pointIndex) =>
+            solved[projectPointKey({
+              entityId: entity.id,
+              ring: 'hole',
+              holeIndex,
+              pointIndex,
+            })] ?? point,
+          ),
+        ),
+      },
+    };
+  }
+  return {
+    ...entity,
+    points: entity.points.map((point, pointIndex) =>
+      solved[projectPointKey({ entityId: entity.id, ring: 'linear', pointIndex })]
+        ?? point,
+    ),
+  };
+}
+
+/**
+ * Solve constraints against project vertex references and return an immutable
+ * project snapshot. Even a non-converged result includes the latest candidate
+ * coordinates for diagnostics, but the original project is kept unchanged.
+ */
+export function solveProjectConstraints(
+  project: Project,
+  constraints: readonly ParametricConstraint[],
+  options: ConstraintSolveOptions = {},
+): ProjectConstraintResult {
+  const result = solveConstraints(projectConstraintPoints(project), constraints, options);
+  const nextProject = result.ok
+    ? {
+        ...project,
+        updatedAt: new Date().toISOString(),
+        entities: project.entities.map((entity) => updateEntity(entity, result.points)),
+      }
+    : project;
+  return { ...result, project: nextProject };
+}

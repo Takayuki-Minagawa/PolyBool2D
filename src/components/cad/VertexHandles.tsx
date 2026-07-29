@@ -12,7 +12,11 @@ type Props = {
   ) => void;
 };
 
-export function VertexHandles({ entity, view, onVertexPointerDown }: Props) {
+export const VertexHandles = memo(function VertexHandles({
+  entity,
+  view,
+  onVertexPointerDown,
+}: Props) {
   const handles: React.ReactElement[] = [];
   const drawRing = (
     ring: { x: number; y: number }[],
@@ -41,4 +45,5 @@ export function VertexHandles({ entity, view, onVertexPointerDown }: Props) {
   drawRing(entity.geometry.outer, 'outer');
   entity.geometry.holes.forEach((h, hi) => drawRing(h, 'hole', hi));
   return <g>{handles}</g>;
-}
+});
+import { memo } from 'react';

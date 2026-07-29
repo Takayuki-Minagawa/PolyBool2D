@@ -13,9 +13,11 @@ import { VertexHandles } from './VertexHandles';
 import { ToolPreview } from './ToolPreview';
 import { useCadViewportInteractions } from './useCadViewportInteractions';
 import { useElementSize } from './useElementSize';
-import { LinearShape } from './LinearShape';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { NumericDrawingHud } from './NumericDrawingHud';
+import { DimensionEntityShape } from './DimensionEntityShape';
+import { UnderlayLayer } from './UnderlayLayer';
+import { Rulers } from './Rulers';
 
 const ZOOM_BUTTON_FACTOR = 1.25;
 
@@ -40,6 +42,7 @@ export function CadViewport() {
   const unionSelected = useAppStore((s) => s.unionSelected);
   const differenceSelected = useAppStore((s) => s.differenceSelected);
   const assignSelectedToLayer = useAppStore((s) => s.assignSelectedToLayer);
+  const addLinearEntity = useAppStore((s) => s.addLinearEntity);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const viewport = useCadViewportInteractions(size);
@@ -135,6 +138,20 @@ export function CadViewport() {
         onContextMenu={(event) => openContextMenu(null, event)}
         style={{ touchAction: 'none', cursor: viewport.cursor }}
       >
+        <defs>
+          <marker
+            id="dimension-arrow"
+            markerWidth="7"
+            markerHeight="7"
+            refX="3.5"
+            refY="3.5"
+            orient="auto-start-reverse"
+            markerUnits="strokeWidth"
+          >
+            <path d="M 7 0 L 0 3.5 L 7 7 Z" fill="context-stroke" />
+          </marker>
+        </defs>
+        <UnderlayLayer projectId={project.id} view={view} />
         {showGrid && (
           <Grid
             width={size.width}
@@ -157,16 +174,14 @@ export function CadViewport() {
               onContextMenu={(e) => openContextMenu(ent.id, e)}
             />
           ) : (
-            <LinearShape
+            <DimensionEntityShape
               key={ent.id}
-              points={ent.points}
+              entity={ent}
               view={view}
+              unit={project.unit}
               color={layerForEntity(project, ent)?.color ?? ent.style.stroke}
               selected={selectedIds.includes(ent.id)}
-              infinite={ent.kind === 'guide'}
-              dashed={ent.kind === 'guide'}
               locked={isEntityEffectivelyLocked(project, ent)}
-              opacity={ent.style.opacity}
               onPointerDown={(e) => viewport.onShapePointerDown(ent.id, e)}
               onContextMenu={(e) => openContextMenu(ent.id, e)}
             />
@@ -198,6 +213,30 @@ export function CadViewport() {
           circleSegments={project.settings.circleSegments}
           unit={project.unit}
           coordinatePrecision={project.settings.coordinatePrecision}
+        />
+        <Rulers
+          width={size.width}
+          height={size.height}
+          view={view}
+          onCreateGuide={(orientation, coordinate) => {
+            if (orientation === 'horizontal') {
+              addLinearEntity(
+                [
+                  { x: 0, y: coordinate },
+                  { x: 1, y: coordinate },
+                ],
+                'guide',
+              );
+            } else {
+              addLinearEntity(
+                [
+                  { x: coordinate, y: 0 },
+                  { x: coordinate, y: 1 },
+                ],
+                'guide',
+              );
+            }
+          }}
         />
       </svg>
       <NumericDrawingHud value={viewport.numericInput} unit={project.unit} />

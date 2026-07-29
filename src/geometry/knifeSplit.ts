@@ -1,11 +1,15 @@
 import { polygonArea, signedRingArea } from './area';
+import { getEngine } from './geometryEngine';
 import { segmentIntersection } from './intersections';
-import { defaultEngine } from './polygonClippingEngine';
 import type { Point, PolygonGeometry, Ring } from './types';
+import { EPS } from './types';
 import {
+  isFinitePoint,
+  isFiniteRing,
   pointsAlmostEqual,
   ringAreaTolerance,
   ringCoordinateTolerance,
+  SPLIT_AREA_RELATIVE_TOLERANCE,
 } from './numeric';
 
 export type KnifeSplitResult =
@@ -20,10 +24,6 @@ type BoundaryIntersections = {
   outerPoints: Point[];
   hasOverlap: boolean;
 };
-
-function finitePoint(point: Point): boolean {
-  return Number.isFinite(point.x) && Number.isFinite(point.y);
-}
 
 function boundaryIntersections(
   polygon: PolygonGeometry,
@@ -101,7 +101,7 @@ function extendKnifeAcrossPolygon(
     x: knifeStart.x + direction.x * high,
     y: knifeStart.y + direction.y * high,
   };
-  return finitePoint(extendedStart) && finitePoint(extendedEnd)
+  return isFinitePoint(extendedStart) && isFinitePoint(extendedEnd)
     ? [extendedStart, extendedEnd]
     : null;
 }
@@ -211,8 +211,8 @@ function makeHalfPlanes(
     holes: [],
   };
   if (
-    !negative.outer.every(finitePoint) ||
-    !positive.outer.every(finitePoint)
+    !isFiniteRing(negative.outer) ||
+    !isFiniteRing(positive.outer)
   ) {
     return null;
   }
@@ -233,12 +233,10 @@ export function knifeSplitPolygon(
   knifeEnd: Point,
 ): KnifeSplitResult {
   if (
-    !finitePoint(knifeStart) ||
-    !finitePoint(knifeEnd) ||
+    !isFinitePoint(knifeStart) ||
+    !isFinitePoint(knifeEnd) ||
     polygon.outer.length < 3 ||
-    ![polygon.outer, ...polygon.holes]
-      .flat()
-      .every(finitePoint)
+    ![polygon.outer, ...polygon.holes].every(isFiniteRing)
   ) {
     return { ok: false, reason: 'no-intersection' };
   }
@@ -285,8 +283,9 @@ export function knifeSplitPolygon(
   if (!halfPlanes) return { ok: false, reason: 'not-two-intersections' };
 
   try {
-    const negative = defaultEngine.intersection([polygon, halfPlanes[0]]);
-    const positive = defaultEngine.intersection([polygon, halfPlanes[1]]);
+    const engine = getEngine();
+    const negative = engine.intersection([polygon, halfPlanes[0]]);
+    const positive = engine.intersection([polygon, halfPlanes[1]]);
     const minimumArea = ringAreaTolerance(polygon.outer);
     const negativePieces = negative.filter(
       (piece) => polygonArea(piece) > minimumArea,
@@ -309,8 +308,8 @@ export function knifeSplitPolygon(
     );
     const areaTolerance = Math.max(
       minimumArea * 10,
-      Math.abs(before) * 1e-8,
-      1e-9,
+      Math.abs(before) * SPLIT_AREA_RELATIVE_TOLERANCE,
+      EPS,
     );
     if (
       !(before > minimumArea) ||
