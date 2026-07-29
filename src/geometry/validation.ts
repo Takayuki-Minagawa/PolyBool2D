@@ -16,6 +16,7 @@ import type {
 import { EPS } from './types';
 import {
   isFiniteRing,
+  lerpPoint,
   pointOnSegment,
   ringAreaTolerance,
   ringCoordinateTolerance,
@@ -119,6 +120,10 @@ function overlappingEdgesShareInteriorSide(
   return aNormalX * bNormalX + aNormalY * bNormalY > 0;
 }
 
+/**
+ * Indexed counterpart to `pointInRingStrict` in intersections.ts. Keep its
+ * half-open ray-crossing rule and boundary-exclusion behavior in sync.
+ */
 function pointInRingStrictWithIndex(
   point: Point,
   bounds: BBox,
@@ -211,6 +216,17 @@ function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
   if (a.some((point) => pointInRingStrictWithIndex(point, bBounds, index))) {
     return true;
   }
+  if (
+    aEdges.some((edge) =>
+      pointInRingStrictWithIndex(
+        lerpPoint(edge.start, edge.end, 0.5),
+        bBounds,
+        index,
+      ),
+    )
+  ) {
+    return true;
+  }
   const aIndex = new BBoxSpatialIndex(
     aEdges.map((edge) => ({
       bbox: edgeBBox(edge.start, edge.end, tolerance),
@@ -218,6 +234,17 @@ function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
     })),
   );
   if (b.some((point) => pointInRingStrictWithIndex(point, aBounds, aIndex))) {
+    return true;
+  }
+  if (
+    bEdges.some((edge) =>
+      pointInRingStrictWithIndex(
+        lerpPoint(edge.start, edge.end, 0.5),
+        aBounds,
+        aIndex,
+      ),
+    )
+  ) {
     return true;
   }
   return (
