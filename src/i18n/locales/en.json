@@ -231,6 +231,7 @@
     "invalid-group-code": "invalid group code",
     "invalid-coordinate": "invalid coordinate",
     "vertex-limit-exceeded": "vertex limit exceeded",
+    "repaired-closed-polyline": "self-intersecting closed polyline was repaired",
     "invalid-closed-polyline": "invalid closed polyline",
     "invalid-open-polyline": "invalid open polyline",
     "invalid-line": "invalid line",

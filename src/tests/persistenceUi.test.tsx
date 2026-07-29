@@ -365,6 +365,39 @@ describe('persistence UI', () => {
     expect(useAppStore.getState().ui.errorMessage).toBeNull();
   });
 
+  it('localizes successful closed-polyline repair diagnostics', async () => {
+    act(() => {
+      root = createRoot(host!);
+      root.render(<Header />);
+    });
+    const input = host!.querySelector(
+      'input[type="file"][accept*="dxf"]',
+    ) as HTMLInputElement;
+    const file = new File([[
+      0, 'SECTION', 2, 'ENTITIES',
+      0, 'LWPOLYLINE', 70, 1, 90, 4,
+      10, 0, 20, 0,
+      10, 10, 20, 10,
+      10, 10, 20, 0,
+      10, 0, 20, 10,
+      0, 'ENDSEC', 0, 'EOF',
+    ].join('\n')], 'bow-tie.dxf', { type: 'application/dxf' });
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      await flushAsyncWork();
+    });
+
+    expect(useAppStore.getState().project.entities).toHaveLength(2);
+    expect(useAppStore.getState().ui.statusMessage).toContain(
+      '自己交差する閉じたポリラインを修復',
+    );
+    expect(useAppStore.getState().ui.statusMessage).not.toContain(
+      'repaired-closed-polyline',
+    );
+  });
+
   it('localizes structural and block-related DXF warning details', async () => {
     act(() => {
       root = createRoot(host!);
@@ -538,6 +571,9 @@ describe('persistence UI', () => {
     const targetId = useAppStore.getState().project.id;
     expect(targetId).not.toBe(imported.id);
     expect(getProjectRecoverySourceJson(targetId)).toBe(sourceJson);
+    expect(useAppStore.getState().ui.errorMessage).toBe(
+      i18n.t('errors.projectNormalized'),
+    );
   });
 
   it('keeps the newest JSON import when an older read finishes later', async () => {
@@ -835,6 +871,9 @@ describe('shared URL initialization', () => {
     expect(target.settings.gridSize).not.toBe(2_000_000);
     expect('futureMetadata' in target).toBe(false);
     expect(getProjectRecoverySourceJson(target.id)).toBe(sourceJson);
+    expect(useAppStore.getState().ui.errorMessage).toBe(
+      i18n.t('errors.projectNormalized'),
+    );
     expect(window.location.hash).toBe('');
   });
 

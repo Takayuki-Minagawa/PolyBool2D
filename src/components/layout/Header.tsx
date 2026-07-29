@@ -44,6 +44,7 @@ const DXF_WARNING_CODES = new Set([
   'invalid-group-code',
   'invalid-coordinate',
   'vertex-limit-exceeded',
+  'repaired-closed-polyline',
   'invalid-closed-polyline',
   'invalid-open-polyline',
   'invalid-line',

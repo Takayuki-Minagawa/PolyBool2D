@@ -231,6 +231,7 @@
     "invalid-group-code": "グループコードが不正",
     "invalid-coordinate": "座標が不正",
     "vertex-limit-exceeded": "頂点数上限を超過",
+    "repaired-closed-polyline": "自己交差する閉じたポリラインを修復",
     "invalid-closed-polyline": "閉じたポリラインが不正",
     "invalid-open-polyline": "開いたポリラインが不正",
     "invalid-line": "線分が不正",

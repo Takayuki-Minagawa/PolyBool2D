@@ -2,6 +2,7 @@ import type { Unit } from '../app/projectTypes';
 import { circleToRing } from '../geometry/circle';
 import { isFinitePoint, pointsAlmostEqual } from '../geometry/numeric';
 import { normalizePolygon } from '../geometry/normalize';
+import { repairRingResult } from '../geometry/repair';
 import { nestRingsAsPolygons } from '../geometry/ringNesting';
 import type { Point, PolygonGeometry, Ring } from '../geometry/types';
 import { validatePolygon } from '../geometry/validation';
@@ -474,20 +475,54 @@ function addPolyline(
     transformPoint(point, transform)
   );
   if (closed) {
-    const polygon = transformedPoints.every(isFinitePoint)
+    const finite = transformedPoints.every(isFinitePoint);
+    const polygon = finite
       ? normalizePolygon({ outer: transformedPoints, holes: [] })
       : null;
-    if (polygon && validatePolygon(polygon).valid) {
+    let acceptedPolygons: PolygonGeometry[] =
+      polygon && validatePolygon(polygon).valid ? [polygon] : [];
+    let repairedClosedPolyline = false;
+    if (acceptedPolygons.length === 0 && finite) {
+      const repaired = repairRingResult(transformedPoints);
+      if (
+        repaired.ok &&
+        repaired.value.length > 0 &&
+        repaired.value.every((candidate) => validatePolygon(candidate).valid)
+      ) {
+        acceptedPolygons = repaired.value;
+        repairedClosedPolyline = true;
+      }
+    }
+    if (acceptedPolygons.length > 0) {
+      const outputVertexCount = acceptedPolygons.reduce(
+        (total, candidate) =>
+          total +
+          candidate.outer.length +
+          candidate.holes.reduce(
+            (holeTotal, hole) => holeTotal + hole.length,
+            0,
+          ),
+        0,
+      );
+      if (outputVertexCount > maxVertices) {
+        addWarning(result.warnings, 'vertex-limit-exceeded');
+        return;
+      }
       if (!consumeOutputVertices(
         budget,
-        polygon.outer.length,
+        outputVertexCount,
         maxTotalVertices,
         result.warnings,
       )) return;
       const layerKey = layer.toUpperCase();
       const rings = closedRings.get(layerKey) ?? [];
-      rings.push(polygon.outer);
+      for (const candidate of acceptedPolygons) {
+        rings.push(candidate.outer, ...candidate.holes);
+      }
       closedRings.set(layerKey, rings);
+      if (repairedClosedPolyline) {
+        addWarning(result.warnings, 'repaired-closed-polyline');
+      }
       return;
     }
     addWarning(result.warnings, 'invalid-closed-polyline');

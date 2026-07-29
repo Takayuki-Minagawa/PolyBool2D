@@ -1,7 +1,10 @@
 import { polygonArea, signedRingArea } from './area';
-import { pointInRing, segmentIntersection } from './intersections';
+import { segmentIntersection } from './intersections';
 import { ringBBox, type BBox } from './measure';
-import { ringsContainedInRingClosure } from './ringNesting';
+import {
+  ringContainedInRingClosure,
+  ringsContainedInRingClosure,
+} from './ringNesting';
 import { BBoxSpatialIndex } from './spatialIndex';
 import type {
   GeometryValidationIssue,
@@ -39,6 +42,15 @@ function expandedBBox(bbox: BBox, tolerance: number): BBox {
     maxX: bbox.maxX + tolerance,
     maxY: bbox.maxY + tolerance,
   };
+}
+
+function bboxContains(outer: BBox, inner: BBox): boolean {
+  return (
+    outer.minX <= inner.minX &&
+    outer.minY <= inner.minY &&
+    outer.maxX >= inner.maxX &&
+    outer.maxY >= inner.maxY
+  );
 }
 
 function ringEdges(ring: Ring): IndexedEdge[] {
@@ -88,7 +100,25 @@ export function ringHasSelfIntersection(ring: Ring): boolean {
   return false;
 }
 
-function ringsIntersect(a: Ring, b: Ring): boolean {
+function overlappingEdgesShareInteriorSide(
+  a: IndexedEdge,
+  b: IndexedEdge,
+  aOrientation: number,
+  bOrientation: number,
+): boolean {
+  if (aOrientation === 0 || bOrientation === 0) return false;
+  const aDx = a.end.x - a.start.x;
+  const aDy = a.end.y - a.start.y;
+  const bDx = b.end.x - b.start.x;
+  const bDy = b.end.y - b.start.y;
+  const aNormalX = -aDy * aOrientation;
+  const aNormalY = aDx * aOrientation;
+  const bNormalX = -bDy * bOrientation;
+  const bNormalY = bDx * bOrientation;
+  return aNormalX * bNormalX + aNormalY * bNormalY > 0;
+}
+
+function ringsHaveInteriorOverlap(a: Ring, b: Ring): boolean {
   if (
     a.length < 2 ||
     b.length < 2 ||
@@ -97,10 +127,15 @@ function ringsIntersect(a: Ring, b: Ring): boolean {
   ) {
     return false;
   }
+  const aBounds = ringBBox(a);
+  const bBounds = ringBBox(b);
+  if (!aBounds || !bBounds) return false;
   const tolerance = Math.max(
     ringCoordinateTolerance(a),
     ringCoordinateTolerance(b),
   );
+  const aOrientation = Math.sign(signedRingArea(a));
+  const bOrientation = Math.sign(signedRingArea(b));
   const bEdges = ringEdges(b);
   const index = new BBoxSpatialIndex(
     bEdges.map((edge) => ({
@@ -112,19 +147,44 @@ function ringsIntersect(a: Ring, b: Ring): boolean {
     for (const candidate of index.queryValues(
       edgeBBox(edge.start, edge.end, tolerance),
     )) {
+      const intersection = segmentIntersection(
+        edge.start,
+        edge.end,
+        candidate.start,
+        candidate.end,
+      );
       if (
-        segmentIntersection(
-          edge.start,
-          edge.end,
-          candidate.start,
-          candidate.end,
-        ).type !== 'none'
+        intersection.type === 'point' &&
+        intersection.tA > EPS &&
+        intersection.tA < 1 - EPS &&
+        intersection.tB > EPS &&
+        intersection.tB < 1 - EPS
+      ) {
+        return true;
+      }
+      if (
+        intersection.type === 'overlap' &&
+        overlappingEdgesShareInteriorSide(
+          edge,
+          candidate,
+          aOrientation,
+          bOrientation,
+        )
       ) {
         return true;
       }
     }
   }
-  return false;
+  return (
+    (
+      bboxContains(bBounds, aBounds) &&
+      ringContainedInRingClosure(a, b)
+    ) ||
+    (
+      bboxContains(aBounds, bBounds) &&
+      ringContainedInRingClosure(b, a)
+    )
+  );
 }
 
 function pushIssueOnce(issues: GeometryValidationIssue[], issue: GeometryValidationIssue): void {
@@ -181,9 +241,7 @@ export function validatePolygon(poly: PolygonGeometry): GeometryValidationResult
     )) {
       if (b.index <= a.index) continue;
       if (
-        ringsIntersect(a.ring, b.ring) ||
-        pointInRing(a.ring[0], b.ring) ||
-        pointInRing(b.ring[0], a.ring)
+        ringsHaveInteriorOverlap(a.ring, b.ring)
       ) {
         pushIssueOnce(issues, 'hole-overlap');
         break;

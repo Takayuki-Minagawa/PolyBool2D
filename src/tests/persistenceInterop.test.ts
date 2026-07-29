@@ -96,6 +96,61 @@ describe('DXF import', () => {
     expect(result.polygons.map(polygonArea).sort((a, b) => a - b)[0]).toBeCloseTo(25);
   });
 
+  it('repairs closed bow-tie LWPOLYLINE and POLYLINE entities', () => {
+    const result = importDxfString(dxfEntityDocument([
+      0, 'LWPOLYLINE', 8, 'Lightweight', 70, 1, 90, 4,
+      10, 0, 20, 0,
+      10, 10, 20, 10,
+      10, 10, 20, 0,
+      10, 0, 20, 10,
+      0, 'POLYLINE', 8, 'Legacy', 70, 1,
+      0, 'VERTEX', 10, 20, 20, 0,
+      0, 'VERTEX', 10, 30, 20, 10,
+      0, 'VERTEX', 10, 30, 20, 0,
+      0, 'VERTEX', 10, 20, 20, 10,
+      0, 'SEQEND',
+    ]));
+
+    expect(result.warnings).toEqual(['repaired-closed-polyline']);
+    expect(result.polylines).toEqual([]);
+    expect(result.polygons).toHaveLength(4);
+    expect(
+      result.polygons.reduce(
+        (total, polygon) => total + polygonArea(polygon),
+        0,
+      ),
+    ).toBeCloseTo(100);
+  });
+
+  it('keeps a regular closed polyline on the normal import path', () => {
+    const result = importDxfString(dxfEntityDocument([
+      0, 'LWPOLYLINE', 70, 1, 90, 4,
+      10, 0, 20, 0,
+      10, 10, 20, 0,
+      10, 10, 20, 10,
+      10, 0, 20, 10,
+    ]));
+
+    expect(result.warnings).toEqual([]);
+    expect(result.polygons).toHaveLength(1);
+    expect(polygonArea(result.polygons[0])).toBeCloseTo(100);
+  });
+
+  it('preserves the open fallback and warning when repair is impossible', () => {
+    const result = importDxfString(dxfEntityDocument([
+      0, 'LWPOLYLINE', 70, 0, 90, 4,
+      10, 0, 20, 0,
+      10, 5, 20, 0,
+      10, 10, 20, 0,
+      10, 0, 20, 0,
+    ]));
+
+    expect(result.polygons).toEqual([]);
+    expect(result.polylines).toHaveLength(1);
+    expect(result.polylines[0].points).toHaveLength(4);
+    expect(result.warnings).toEqual(['invalid-closed-polyline']);
+  });
+
   it('reports malformed and resource-limited data without throwing', () => {
     const truncated = importDxfString('0\nSECTION\n2');
     expect(truncated.warnings).toContain('truncated-group-pair');
@@ -481,11 +536,11 @@ describe('DXF import', () => {
     expect(limitedBulge.polygons).toEqual([]);
     expect(limitedBulge.polylines).toEqual([]);
     expect(limitedBulge.warnings).toEqual(['vertex-limit-exceeded']);
-    expect(selfIntersectingOpenLoop.polygons).toEqual([]);
-    expect(selfIntersectingOpenLoop.polylines).toHaveLength(1);
-    expect(selfIntersectingOpenLoop.warnings).toContain(
-      'invalid-closed-polyline',
-    );
+    expect(selfIntersectingOpenLoop.polygons).toHaveLength(2);
+    expect(selfIntersectingOpenLoop.polylines).toEqual([]);
+    expect(selfIntersectingOpenLoop.warnings).toEqual([
+      'repaired-closed-polyline',
+    ]);
     expect(unsupportedBeforeGeometry.polylines).toHaveLength(1);
     expect(unsupportedBeforeGeometry.warnings).toEqual([
       'unsupported-entity:TEXT',
