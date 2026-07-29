@@ -161,6 +161,7 @@
     ,"workspaceExtras": "グループ・部品・拘束"
     ,"groupSelection": "選択をグループ化"
     ,"ungroupSelection": "選択のグループ解除"
+    ,"groupDefaultName": "グループ {{index}}"
     ,"lockGroup": "グループ「{{name}}」をロック"
     ,"unlockGroup": "グループ「{{name}}」のロックを解除"
     ,"hideGroup": "グループ「{{name}}」を非表示"
@@ -212,7 +213,7 @@
     "guideVertex-edit": "頂点をドラッグで移動 / Alt+クリックで削除",
     "jsonImported": "「{{name}}」を読み込みました。",
     "svgImported": "SVGから{{count}}図形を読み込みました（警告: {{warnings}}件）。",
-    "dxfImported": "DXFから{{count}}図形を読み込みました（警告: {{warnings}}件）。",
+    "dxfImported": "DXFから{{count}}図形を読み込みました（警告: {{warnings}}件{{warningTypes}}）。",
     "geoJsonImported": "GeoJSONから{{count}}図形を読み込みました（警告: {{warnings}}件）。",
     "underlayImported": "下絵「{{name}}」を読み込みました。",
     "pngExported": "PNGを書き出しました。",
@@ -220,6 +221,32 @@
     "reportOpened": "断面性能レポートを開きました。",
     "shareCopied": "共有URLをクリップボードへコピーしました。",
     "projectLoaded": "「{{name}}」を開きました。"
+  },
+  "dxfWarnings": {
+    "invalid-dxf": "DXF構造が不正",
+    "file-read-error": "ファイルを読み取れない",
+    "input-size-limit-exceeded": "ファイルサイズ上限を超過",
+    "group-pair-limit-exceeded": "DXFレコード数上限を超過",
+    "truncated-group-pair": "DXFレコードが途中で終了",
+    "invalid-group-code": "グループコードが不正",
+    "invalid-coordinate": "座標が不正",
+    "vertex-limit-exceeded": "頂点数上限を超過",
+    "invalid-closed-polyline": "閉じたポリラインが不正",
+    "invalid-open-polyline": "開いたポリラインが不正",
+    "invalid-line": "線分が不正",
+    "invalid-circle": "円が不正",
+    "invalid-arc": "円弧が不正",
+    "unsupported-unit": "未対応の単位（コード {{detail}}）",
+    "invalid-block": "ブロック定義が不正",
+    "duplicate-block": "ブロック定義が重複（{{detail}}）",
+    "entity-limit-exceeded": "エンティティ数上限を超過",
+    "unsupported-entity": "未対応エンティティ（{{detail}}）",
+    "invalid-insert": "ブロック挿入が不正",
+    "undefined-block": "未定義ブロック（{{detail}}）",
+    "cyclic-block": "ブロック参照が循環（{{detail}}）",
+    "missing-eof": "ファイル終端マーカーがない",
+    "warning-limit-exceeded": "ほかの警告種別を省略",
+    "other": "読み込み警告"
   },
   "errors": {
     "invalidPolygon": "不正な形状のため作成できません。",
@@ -236,6 +263,7 @@
     "vertexMinimum": "ポリゴンの頂点は3つ以上必要です。",
     "unionNeedsTwo": "結合には2つ以上の図形を選択してください。",
     "booleanNeedsTwo": "ブール演算には2つ以上の図形を選択してください。",
+    "geometryEngineFailed": "この座標範囲では図形演算を実行できませんでした。",
     "subjectNotSelected": "差分の対象が選択されていません。",
     "cutterNotSelected": "差分のカッターが選択されていません。",
     "emptyResult": "演算結果が空でした。",
@@ -248,7 +276,8 @@
     },
     "importInvalid": "不正なJSONファイルです。",
     "projectDecodeFailed": "プロジェクトを開けませんでした（{{reason}}）。",
-    "projectRecovered": "破損した項目 {{count}} 件を除外してプロジェクトを復旧しました: {{reasons}}。編集するまで元の保存データは上書きしません。",
+    "projectRecovered": "破損した項目 {{count}} 件を除外してプロジェクトを復旧しました: {{reasons}}。元データは明示的に破棄するまで別領域へ恒久退避します。",
+    "projectNormalized": "保存データを正規化してプロジェクトを開きました。正規化後の変更を保存する前に、元データを別領域へ恒久退避します。",
     "projectDecodeReasons": {
       "invalid-json": "JSONが不正",
       "invalid-root": "プロジェクトのルートが不正",
@@ -258,7 +287,10 @@
       "invalid-project-metadata": "プロジェクト情報が不正",
       "invalid-layers": "レイヤーが不正",
       "invalid-entities": "図形一覧が不正",
+      "project-id-mismatch": "保存キーとプロジェクトIDが一致しない",
       "invalid-entity": "図形が不正",
+      "invalid-entity-id": "図形IDが空または不正",
+      "duplicate-entity-id": "図形IDが重複",
       "invalid-polygon": "ポリゴンが不正",
       "invalid-linear-entity": "線・寸法・注釈が不正",
       "unsupported-entity-type": "未対応の図形形式",
@@ -273,8 +305,11 @@
     },
     "svgImportInvalid": "SVGから読み込める図形が見つかりませんでした。",
     "dxfImportInvalid": "DXFから読み込める図形が見つかりませんでした。",
+    "invalidImportedLine": "不正な線要素を読み込み時に除外しました。",
     "geoJsonImportInvalid": "GeoJSONから読み込める図形が見つかりませんでした。",
+    "projectChangedDuringImport": "ファイルの読み込み中にプロジェクトが切り替わったため、取り込みを中止しました。",
     "underlayImportInvalid": "下絵画像を保存できませんでした。",
+    "underlayRollbackFailed": "中止した下絵を削除できませんでした。元のプロジェクトから削除してから続行してください。",
     "pngExportFailed": "PNGの書き出しに失敗しました。",
     "dxfExportFailed": "DXFの書き出しに失敗しました。",
     "reportOpenFailed": "印刷用レポート画面を開けませんでした。",
@@ -284,11 +319,12 @@
     "shareClipboardFailed": "共有URLをクリップボードへコピーできませんでした。",
     "shareInvalid": "共有URLのプロジェクトデータが不正です。",
     "layerMinimum": "少なくとも1つのレイヤーが必要です。",
+    "layerDeleteProtected": "ロックされたレイヤーまたは図形を含むため、レイヤーを削除できません。",
     "validation": {
       "outer-too-few-points": "外周には3点以上必要です。",
       "hole-too-few-points": "穴には3点以上必要です。",
       "self-intersection": "ポリゴンが自己交差しています。",
-      "hole-outside-outer": "穴は外周の内側に完全に収めてください。",
+      "hole-outside-outer": "穴は外周の内側または境界上に収めてください。",
       "hole-overlap": "穴同士を重ねたり包含させたりできません。",
       "zero-area": "ポリゴンの面積が0または小さすぎます。"
     },
@@ -336,10 +372,15 @@
     "duplicate": "複製",
     "backups": "バックアップ",
     "delete": "削除",
-    "confirmDelete": "このプロジェクトとバックアップを削除しますか？",
+    "confirmDelete": "このプロジェクト、バックアップ、恒久退避した元データを削除しますか？",
     "noBackups": "バックアップはありません。",
     "entities": "図形",
-    "restore": "復元"
+    "restore": "復元",
+    "recoverySnapshot": "恒久退避した元データ",
+    "downloadRecovery": "元データをダウンロード",
+    "discardRecovery": "元データを破棄",
+    "confirmDiscardRecovery": "恒久退避した元データを完全に破棄しますか？この操作は元に戻せません。",
+    "restoreUnavailable": "復元できません: {{reason}}"
   },
   "context": {
     "copy": "コピー",

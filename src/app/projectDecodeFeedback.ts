@@ -19,14 +19,18 @@ export function projectDecodeFeedback(
       reason: t(`errors.projectDecodeReasons.${result.reason}`),
     });
   }
-  if (result.discardedItemCount === 0) return null;
-  const reasons = [...new Set(
-    result.discardedItems.map((item) =>
-      t(`errors.projectDecodeReasons.${item.reason}`),
-    ),
-  )];
-  return t('errors.projectRecovered', {
-    count: result.discardedItemCount,
-    reasons: reasons.join(', '),
-  });
+  if (result.discardedItemCount > 0) {
+    const reasons = [...new Set(
+      result.discardedItems.map((item) =>
+        t(`errors.projectDecodeReasons.${item.reason}`),
+      ),
+    )];
+    return t('errors.projectRecovered', {
+      count: result.discardedItemCount,
+      reasons: reasons.join(', '),
+    });
+  }
+  return result.sourceWasNormalized
+    ? t('errors.projectNormalized')
+    : null;
 }

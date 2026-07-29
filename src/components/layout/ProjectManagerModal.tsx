@@ -6,21 +6,28 @@ import { useAppStore } from '../../app/appStore';
 import type { Project } from '../../app/projectTypes';
 import {
   deleteLocalProject,
+  deleteProjectRecoverySnapshot,
   duplicateLocalProject,
+  getProjectRecoverySourceJson,
+  getProjectRecoverySnapshot,
   listLocalProjects,
   listProjectBackups,
   loadProjectByIdResult,
   renameLocalProject,
   restoreProjectBackupResult,
+  restoreProjectRecoverySnapshot,
   saveProjectToLocal,
   setActiveProjectId,
   type ProjectBackupSummary,
+  type ProjectRecoverySnapshotSummary,
   type StoredProjectSummary,
 } from '../../persistence/localProjectStore';
 import type {
+  ProjectDecodeFailureReason,
   ProjectDecodeResult,
   ProjectDecodeSuccess,
 } from '../../persistence/projectCodec';
+import { downloadText, timestamp } from '../../persistence/download';
 import { useModalDismiss } from '../common/useModalDismiss';
 
 type Props = {
@@ -45,6 +52,8 @@ export function ProjectManagerModal({
   const [projects, setProjects] = useState<StoredProjectSummary[]>([]);
   const [backupProjectId, setBackupProjectId] = useState<string | null>(null);
   const [backups, setBackups] = useState<ProjectBackupSummary[]>([]);
+  const [recoverySnapshot, setRecoverySnapshot] =
+    useState<ProjectRecoverySnapshotSummary | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -58,12 +67,22 @@ export function ProjectManagerModal({
     if (feedback) useAppStore.getState().setErrorMessage(feedback);
     return result.ok;
   };
+  const decodeFailureLabel = (
+    reason?: ProjectDecodeFailureReason,
+  ): string | null => (
+    reason
+      ? t('projects.restoreUnavailable', {
+          reason: t(`errors.projectDecodeReasons.${reason}`),
+        })
+      : null
+  );
 
   useEffect(() => {
     if (!open) return;
     refresh();
     setBackupProjectId(null);
     setBackups([]);
+    setRecoverySnapshot(null);
     setEditingId(null);
   }, [open]);
 
@@ -119,6 +138,10 @@ export function ProjectManagerModal({
     }
     setEditingId(null);
     refresh();
+    if (backupProjectId === project.id) {
+      setBackups(listProjectBackups(project.id));
+      setRecoverySnapshot(getProjectRecoverySnapshot(project.id));
+    }
   }
 
   function duplicateProject(id: string) {
@@ -148,6 +171,7 @@ export function ProjectManagerModal({
     if (backupProjectId === id) {
       setBackupProjectId(null);
       setBackups([]);
+      setRecoverySnapshot(null);
     }
     const remaining = listLocalProjects();
     setProjects(remaining);
@@ -165,7 +189,13 @@ export function ProjectManagerModal({
       }
       replacement = result.project;
       replacementId = summary.id;
-      if (!pendingDecodeFeedback && result.discardedItemCount > 0) {
+      if (
+        !pendingDecodeFeedback &&
+        (
+          result.discardedItemCount > 0 ||
+          result.sourceWasNormalized
+        )
+      ) {
         pendingDecodeFeedback = result;
       }
       break;
@@ -189,24 +219,64 @@ export function ProjectManagerModal({
       else onPersistenceError();
       return;
     }
-    if (!reportDecodeResult(restored.decodeResult)) {
+    if (!onLoadProject(restored.project, { saveCurrent: false })) return;
+    reportDecodeResult(restored.decodeResult);
+    refresh();
+    setBackups(listProjectBackups(projectId));
+    setRecoverySnapshot(getProjectRecoverySnapshot(projectId));
+  }
+
+  function restoreRecoverySnapshot(projectId: string) {
+    const liveProject = useAppStore.getState().project;
+    if (liveProject.id === projectId && !saveProjectToLocal(liveProject)) {
       onPersistenceError();
+      return;
+    }
+    const restored = restoreProjectRecoverySnapshot(projectId);
+    if (!restored.ok) {
+      if (restored.decodeResult) reportDecodeResult(restored.decodeResult);
+      else onPersistenceError();
       return;
     }
     if (!onLoadProject(restored.project, { saveCurrent: false })) return;
     reportDecodeResult(restored.decodeResult);
     refresh();
     setBackups(listProjectBackups(projectId));
+    setRecoverySnapshot(getProjectRecoverySnapshot(projectId));
+  }
+
+  function discardRecoverySnapshot(projectId: string) {
+    if (!window.confirm(t('projects.confirmDiscardRecovery'))) return;
+    if (!deleteProjectRecoverySnapshot(projectId)) {
+      onPersistenceError();
+      return;
+    }
+    setRecoverySnapshot(null);
+  }
+
+  function downloadRecoverySource(projectId: string) {
+    const source = getProjectRecoverySourceJson(projectId);
+    if (source === null) {
+      onPersistenceError();
+      return;
+    }
+    downloadText(
+      source,
+      `polybool2d-recovery-${timestamp()}.json`,
+      'application/json',
+    );
   }
 
   function showBackups(id: string) {
     if (backupProjectId === id) {
       setBackupProjectId(null);
       setBackups([]);
+      setRecoverySnapshot(null);
       return;
     }
     setBackupProjectId(id);
     setBackups(listProjectBackups(id));
+    setRecoverySnapshot(getProjectRecoverySnapshot(id));
   }
 
   return (
@@ -290,7 +360,51 @@ export function ProjectManagerModal({
                   </div>
                   {backupProjectId === project.id && (
                     <div className="backup-list">
-                      {backups.length === 0 ? (
+                      {recoverySnapshot && (
+                        <div className="backup-row recovery-snapshot-row">
+                          <span>
+                            {t('projects.recoverySnapshot')} ·{' '}
+                            {displayDate(recoverySnapshot.savedAt)} ·{' '}
+                            {recoverySnapshot.entityCount} {t('projects.entities')}
+                            {recoverySnapshot.decodeFailureReason && (
+                              <>
+                                {' · '}
+                                {decodeFailureLabel(
+                                  recoverySnapshot.decodeFailureReason,
+                                )}
+                              </>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={Boolean(
+                              recoverySnapshot.decodeFailureReason,
+                            )}
+                            title={
+                              decodeFailureLabel(
+                                recoverySnapshot.decodeFailureReason,
+                              ) ?? undefined
+                            }
+                            onClick={() => restoreRecoverySnapshot(project.id)}
+                          >
+                            {t('projects.restore')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadRecoverySource(project.id)}
+                          >
+                            {t('projects.downloadRecovery')}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() => discardRecoverySnapshot(project.id)}
+                          >
+                            {t('projects.discardRecovery')}
+                          </button>
+                        </div>
+                      )}
+                      {!recoverySnapshot && backups.length === 0 ? (
                         <span className="muted-text">{t('projects.noBackups')}</span>
                       ) : (
                         backups.map((backup) => (
@@ -298,9 +412,20 @@ export function ProjectManagerModal({
                             <span>
                               {displayDate(backup.savedAt)} · {backup.entityCount}{' '}
                               {t('projects.entities')}
+                              {backup.decodeFailureReason && (
+                                <>
+                                  {' · '}
+                                  {decodeFailureLabel(backup.decodeFailureReason)}
+                                </>
+                              )}
                             </span>
                             <button
                               type="button"
+                              disabled={Boolean(backup.decodeFailureReason)}
+                              title={
+                                decodeFailureLabel(backup.decodeFailureReason) ??
+                                undefined
+                              }
                               onClick={() => restoreBackup(project.id, backup.id)}
                             >
                               {t('projects.restore')}

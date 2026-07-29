@@ -161,6 +161,7 @@
     ,"workspaceExtras": "Groups, parts & constraints"
     ,"groupSelection": "Group selection"
     ,"ungroupSelection": "Ungroup selection"
+    ,"groupDefaultName": "Group {{index}}"
     ,"lockGroup": "Lock group “{{name}}”"
     ,"unlockGroup": "Unlock group “{{name}}”"
     ,"hideGroup": "Hide group “{{name}}”"
@@ -212,7 +213,7 @@
     "guideVertex-edit": "Drag vertices to move / Alt+click to delete",
     "jsonImported": "Loaded “{{name}}”.",
     "svgImported": "Imported {{count}} shape(s) from SVG ({{warnings}} warning(s)).",
-    "dxfImported": "Imported {{count}} shape(s) from DXF ({{warnings}} warning(s)).",
+    "dxfImported": "Imported {{count}} shape(s) from DXF ({{warnings}} warning(s){{warningTypes}}).",
     "geoJsonImported": "Imported {{count}} shape(s) from GeoJSON ({{warnings}} warning(s)).",
     "underlayImported": "Imported underlay “{{name}}”.",
     "pngExported": "Exported PNG.",
@@ -220,6 +221,32 @@
     "reportOpened": "Opened the section-properties report.",
     "shareCopied": "Copied the share URL to the clipboard.",
     "projectLoaded": "Opened “{{name}}”."
+  },
+  "dxfWarnings": {
+    "invalid-dxf": "invalid DXF structure",
+    "file-read-error": "file could not be read",
+    "input-size-limit-exceeded": "file size limit exceeded",
+    "group-pair-limit-exceeded": "DXF record limit exceeded",
+    "truncated-group-pair": "truncated DXF record",
+    "invalid-group-code": "invalid group code",
+    "invalid-coordinate": "invalid coordinate",
+    "vertex-limit-exceeded": "vertex limit exceeded",
+    "invalid-closed-polyline": "invalid closed polyline",
+    "invalid-open-polyline": "invalid open polyline",
+    "invalid-line": "invalid line",
+    "invalid-circle": "invalid circle",
+    "invalid-arc": "invalid arc",
+    "unsupported-unit": "unsupported unit (code {{detail}})",
+    "invalid-block": "invalid block definition",
+    "duplicate-block": "duplicate block definition ({{detail}})",
+    "entity-limit-exceeded": "entity limit exceeded",
+    "unsupported-entity": "unsupported entity ({{detail}})",
+    "invalid-insert": "invalid block insertion",
+    "undefined-block": "undefined block ({{detail}})",
+    "cyclic-block": "cyclic block reference ({{detail}})",
+    "missing-eof": "missing end-of-file marker",
+    "warning-limit-exceeded": "additional warning types omitted",
+    "other": "import warning"
   },
   "errors": {
     "invalidPolygon": "Cannot create — invalid shape.",
@@ -236,6 +263,7 @@
     "vertexMinimum": "A polygon needs at least 3 vertices.",
     "unionNeedsTwo": "Select two or more polygons to union.",
     "booleanNeedsTwo": "Select two or more polygons for boolean operations.",
+    "geometryEngineFailed": "The geometry operation could not process these coordinates.",
     "subjectNotSelected": "No subject selected for difference.",
     "cutterNotSelected": "No cutter selected for difference.",
     "emptyResult": "Boolean result was empty.",
@@ -248,7 +276,8 @@
     },
     "importInvalid": "Invalid JSON file.",
     "projectDecodeFailed": "The project could not be opened ({{reason}}).",
-    "projectRecovered": "Opened the recoverable project after discarding {{count}} damaged item(s): {{reasons}}. The original saved bytes will be kept until you edit the project.",
+    "projectRecovered": "Opened the recoverable project after discarding {{count}} damaged item(s): {{reasons}}. The original source is preserved separately until you explicitly discard it.",
+    "projectNormalized": "Opened the project after normalizing its stored data. The original source will be preserved separately before normalized changes are saved.",
     "projectDecodeReasons": {
       "invalid-json": "invalid JSON",
       "invalid-root": "invalid project root",
@@ -258,7 +287,10 @@
       "invalid-project-metadata": "invalid project metadata",
       "invalid-layers": "invalid layers",
       "invalid-entities": "invalid entity list",
+      "project-id-mismatch": "stored project ID does not match its storage key",
       "invalid-entity": "invalid entity",
+      "invalid-entity-id": "missing or blank entity ID",
+      "duplicate-entity-id": "duplicate entity ID",
       "invalid-polygon": "invalid polygon",
       "invalid-linear-entity": "invalid line, dimension, or annotation",
       "unsupported-entity-type": "unsupported entity type",
@@ -273,8 +305,11 @@
     },
     "svgImportInvalid": "No supported shapes were found in the SVG.",
     "dxfImportInvalid": "No supported shapes were found in the DXF.",
+    "invalidImportedLine": "One or more invalid line records were skipped during import.",
     "geoJsonImportInvalid": "No supported shapes were found in the GeoJSON.",
+    "projectChangedDuringImport": "The import was cancelled because the active project changed while the file was being read.",
     "underlayImportInvalid": "The underlay image could not be stored.",
+    "underlayRollbackFailed": "A cancelled underlay could not be removed. Delete it from the original project before continuing.",
     "pngExportFailed": "PNG export failed.",
     "dxfExportFailed": "DXF export failed.",
     "reportOpenFailed": "The printable report window could not be opened.",
@@ -284,11 +319,12 @@
     "shareClipboardFailed": "Could not copy the share URL to the clipboard.",
     "shareInvalid": "The project data in the share URL is invalid.",
     "layerMinimum": "At least one layer is required.",
+    "layerDeleteProtected": "The layer cannot be deleted because it or one of its entities is locked.",
     "validation": {
       "outer-too-few-points": "The outer ring needs at least three points.",
       "hole-too-few-points": "A hole needs at least three points.",
       "self-intersection": "The polygon contains a self-intersection.",
-      "hole-outside-outer": "A hole must stay completely inside the outer ring.",
+      "hole-outside-outer": "A hole must stay inside or on the boundary of the outer ring.",
       "hole-overlap": "Holes may not overlap or contain one another.",
       "zero-area": "The polygon has zero or negligible area."
     },
@@ -336,10 +372,15 @@
     "duplicate": "Duplicate",
     "backups": "Backups",
     "delete": "Delete",
-    "confirmDelete": "Delete this project and its backups?",
+    "confirmDelete": "Delete this project, its backups, and any preserved original source?",
     "noBackups": "No backups.",
     "entities": "entities",
-    "restore": "Restore"
+    "restore": "Restore",
+    "recoverySnapshot": "Preserved original source",
+    "downloadRecovery": "Download source",
+    "discardRecovery": "Discard source",
+    "confirmDiscardRecovery": "Permanently discard the preserved original source? This cannot be undone.",
+    "restoreUnavailable": "Restore unavailable: {{reason}}"
   },
   "context": {
     "copy": "Copy",

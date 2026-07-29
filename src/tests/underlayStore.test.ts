@@ -7,6 +7,7 @@ import {
 } from '../persistence/localProjectStore';
 import {
   deleteUnderlayImage,
+  deleteUnderlayImageDurably,
   deleteUnderlaysForProject,
   imageDimensions,
   listUnderlayImages,
@@ -190,6 +191,28 @@ describe('underlay IndexedDB persistence', () => {
 
     await expect(listUnderlayImages(project.id)).resolves.toEqual([]);
     expect(localStorage.getItem('pb2d.underlays.pending-deletes')).toBeNull();
+  });
+
+  it('retries a cancelled import image deletion after a transient failure', async () => {
+    const database = installFakeIndexedDb();
+    const image = underlay(
+      'cancelled-underlay',
+      'project-a',
+      '2026-01-01T00:00:00.000Z',
+    );
+    await saveUnderlayImage(image);
+
+    database.setFailOpen(true);
+    await expect(deleteUnderlayImageDurably(image.id)).resolves.toBe(false);
+    expect(
+      localStorage.getItem('pb2d.underlays.pending-image-deletes'),
+    ).toContain(image.id);
+
+    database.setFailOpen(false);
+    await expect(listUnderlayImages(image.projectId)).resolves.toEqual([]);
+    expect(
+      localStorage.getItem('pb2d.underlays.pending-image-deletes'),
+    ).toBeNull();
   });
 });
 

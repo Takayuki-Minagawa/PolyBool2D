@@ -95,16 +95,18 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
       }
       const existing = current.project.layers.find((layer) => layer.id === id);
       const fallback = current.project.layers.find((layer) => layer.id !== id);
+      if (!existing || !fallback) return;
       if (
-        !existing ||
         existing.locked ||
-        !fallback ||
         current.project.entities.some(
           (entity) =>
             entity.layerId === id &&
             isEntityEffectivelyLocked(current.project, entity),
         )
-      ) return;
+      ) {
+        current.setErrorMessage('errors.layerDeleteProtected');
+        return;
+      }
       current.pushHistory();
       set((state) => ({
         project: touchProjectUpdatedAt({

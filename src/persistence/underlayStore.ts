@@ -3,6 +3,7 @@ import { makeId } from '../app/idUtils';
 const DATABASE_NAME = 'polybool2d-assets';
 const DATABASE_VERSION = 1;
 const STORE_NAME = 'underlays';
+const PENDING_IMAGE_DELETE_KEY = 'pb2d.underlays.pending-image-deletes';
 
 export type UnderlayImage = {
   id: string;
@@ -230,6 +231,7 @@ export async function saveUnderlayImage(image: UnderlayImage): Promise<void> {
 }
 
 export async function listUnderlayImages(projectId: string): Promise<UnderlayImage[]> {
+  await retryPendingUnderlayImageDeletes();
   const database = await openDatabase();
   try {
     const transaction = database.transaction(STORE_NAME, 'readonly');
@@ -290,6 +292,76 @@ export async function deleteUnderlayImage(id: string): Promise<void> {
   } finally {
     database.close();
   }
+}
+
+function readPendingImageDeletes(): string[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(PENDING_IMAGE_DELETE_KEY) ?? '[]',
+    ) as unknown;
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.filter(
+          (value): value is string =>
+            typeof value === 'string' && value.length > 0,
+        ))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingImageDeletes(ids: readonly string[]): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    if (ids.length === 0) localStorage.removeItem(PENDING_IMAGE_DELETE_KEY);
+    else localStorage.setItem(PENDING_IMAGE_DELETE_KEY, JSON.stringify(ids));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retry cancelled-import cleanup recorded before a transient IndexedDB
+ * failure. Tombstones are harmless when the record was already removed.
+ */
+export async function retryPendingUnderlayImageDeletes(): Promise<boolean> {
+  const pending = readPendingImageDeletes();
+  if (pending.length === 0) return true;
+  const attempted = new Set(pending);
+  const remaining: string[] = [];
+  for (const id of pending) {
+    try {
+      await deleteUnderlayImage(id);
+    } catch {
+      remaining.push(id);
+    }
+  }
+  const queuedDuringRetry = readPendingImageDeletes().filter(
+    (id) => !attempted.has(id),
+  );
+  const next = [...new Set([...remaining, ...queuedDuringRetry])];
+  return writePendingImageDeletes(next) && next.length === 0;
+}
+
+/**
+ * Delete one image with a durable tombstone so a cancelled async import can
+ * never become a permanent orphan after a transient IndexedDB failure.
+ */
+export async function deleteUnderlayImageDurably(id: string): Promise<boolean> {
+  if (!id) return false;
+  const pending = [...new Set([...readPendingImageDeletes(), id])];
+  const tombstoneSaved = writePendingImageDeletes(pending);
+  try {
+    await deleteUnderlayImage(id);
+  } catch {
+    return false;
+  }
+  const cleared = writePendingImageDeletes(
+    readPendingImageDeletes().filter((pendingId) => pendingId !== id),
+  );
+  return cleared || !tombstoneSaved;
 }
 
 /** Remove every underlay owned by a deleted project. */

@@ -42,6 +42,54 @@ describe('validation', () => {
     expect(r.issues).toContain('hole-outside-outer');
   });
 
+  it.each([
+    {
+      name: 'shared edge',
+      hole: rectangleToRing({ x: 0, y: 3 }, { x: 4, y: 7 }),
+    },
+    {
+      name: 'single touching vertex',
+      hole: [
+        { x: 0, y: 5 },
+        { x: 2, y: 3 },
+        { x: 4, y: 5 },
+        { x: 2, y: 7 },
+      ],
+    },
+  ])('accepts a hole contained in the outer closure with a $name', ({ hole }) => {
+    const r = validatePolygon({
+      outer: rectangleToRing({ x: 0, y: 0 }, { x: 10, y: 10 }),
+      holes: [hole],
+    });
+
+    expect(r).toEqual({ valid: true, issues: [] });
+  });
+
+  it('rejects a hole that exits through concave outer vertices', () => {
+    const r = validatePolygon({
+      outer: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+        { x: 7, y: 10 },
+        { x: 7, y: 3 },
+        { x: 3, y: 3 },
+        { x: 3, y: 10 },
+        { x: 0, y: 10 },
+      ],
+      holes: [[
+        { x: 5, y: 0.5 },
+        { x: 3, y: 3 },
+        { x: 3, y: 4 },
+        { x: 7, y: 4 },
+        { x: 7, y: 3 },
+      ]],
+    });
+
+    expect(r.valid).toBe(false);
+    expect(r.issues).toContain('hole-outside-outer');
+  });
+
   it('flags overlapping holes', () => {
     const r = validatePolygon({
       outer: rectangleToRing({ x: 0, y: 0 }, { x: 20, y: 20 }),
@@ -78,4 +126,28 @@ describe('validation', () => {
     });
     expect(ringHasSelfIntersection(ring)).toBe(false);
   });
+
+  it(
+    'validates many disjoint holes through the ring bbox broad phase',
+    () => {
+      const holeCount = 1_500;
+      const columns = Math.ceil(Math.sqrt(holeCount));
+      const holes = Array.from({ length: holeCount }, (_, index) => {
+        const x = (index % columns) * 3 + 1;
+        const y = Math.floor(index / columns) * 3 + 1;
+        return rectangleToRing({ x, y }, { x: x + 1, y: y + 1 });
+      });
+      const extent = columns * 3 + 2;
+      const startedAt = performance.now();
+
+      const result = validatePolygon({
+        outer: rectangleToRing({ x: 0, y: 0 }, { x: extent, y: extent }),
+        holes,
+      });
+
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+      expect(result).toEqual({ valid: true, issues: [] });
+    },
+    5_000,
+  );
 });

@@ -96,8 +96,8 @@ export function createPrimitiveActions(set: AppSet, get: AppGet): Pick<
     },
 
     validateEntity: (id) => {
-      const entity = getPolygon(get().project, id);
-      if (!entity) return true;
+      const entity = get().project.entities.find((item) => item.id === id);
+      if (!entity || entity.type !== 'polygon') return true;
       const validation = validatePolygon(entity.geometry);
       set((state) => ({
         ui: {

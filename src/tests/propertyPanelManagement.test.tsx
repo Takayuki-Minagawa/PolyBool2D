@@ -83,6 +83,27 @@ describe('PropertyPanel layer manager', () => {
     expect(host!.textContent).toContain('下絵画像');
   });
 
+  it('uses the localized default name when grouping a selection', () => {
+    let firstId = '';
+    let secondId = '';
+    act(() => {
+      firstId = useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 4, y: 2 })!.id;
+      secondId = useAppStore
+        .getState()
+        .addRectangle({ x: 10, y: 0 }, { x: 14, y: 2 })!.id;
+      useAppStore.getState().selectMany([firstId, secondId]);
+    });
+    renderPanel();
+
+    act(() => textButton(i18n.t('panel.groupSelection')).click());
+
+    expect(useAppStore.getState().project.groups?.[0]?.name).toBe(
+      '\u30b0\u30eb\u30fc\u30d7 1',
+    );
+  });
+
   it('is visible without a selection and manages layer properties and assignment', () => {
     renderPanel();
     expect(host!.textContent).toContain('レイヤー');

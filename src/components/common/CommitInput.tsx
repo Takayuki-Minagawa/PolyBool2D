@@ -14,6 +14,7 @@ export function CommitInput({
   onCommit,
   normalize = (next) => next,
   onKeyDown,
+  onFocus,
   ...inputProps
 }: CommitInputProps) {
   const [draft, setDraft] = useState(value);
@@ -41,6 +42,10 @@ export function CommitInput({
       {...inputProps}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
+      onFocus={(event) => {
+        skipNextBlurCommitRef.current = false;
+        onFocus?.(event);
+      }}
       onBlur={() => {
         if (skipNextBlurCommitRef.current) {
           skipNextBlurCommitRef.current = false;

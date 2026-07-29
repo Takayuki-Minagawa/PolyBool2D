@@ -72,13 +72,20 @@ export type ProjectDecodeFailureReason =
   | 'migration-failed'
   | 'invalid-project-metadata'
   | 'invalid-layers'
-  | 'invalid-entities';
+  | 'invalid-entities'
+  | 'project-id-mismatch';
 
 export type ProjectDecodeSuccess = {
   ok: true;
   project: Project;
   sourceVersion: string;
   migrations: ReadonlyArray<{ fromVersion: string; toVersion: string }>;
+  /**
+   * True when saving `project` would change the parsed source JSON, including
+   * migrations, clamping/defaulting, discarded items, or unknown-field
+   * removal. Whitespace and object-key order alone do not count.
+   */
+  sourceWasNormalized: boolean;
   discardedEntityCount: number;
   discardedEntities: ReadonlyArray<{
     index: number;
@@ -100,6 +107,8 @@ export type ProjectDecodeSuccess = {
 
 export type ProjectEntityDecodeFailureReason =
   | 'invalid-entity'
+  | 'invalid-entity-id'
+  | 'duplicate-entity-id'
   | 'invalid-polygon'
   | 'invalid-linear-entity'
   | 'unsupported-entity-type';
@@ -145,6 +154,36 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function jsonValuesEqual(a: unknown, b: unknown): boolean {
+  const pending: Array<readonly [unknown, unknown]> = [[a, b]];
+  while (pending.length > 0) {
+    const [left, right] = pending.pop()!;
+    if (left === right) continue;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      if (
+        !Array.isArray(left) ||
+        !Array.isArray(right) ||
+        left.length !== right.length
+      ) {
+        return false;
+      }
+      for (let index = 0; index < left.length; index += 1) {
+        pending.push([left[index], right[index]]);
+      }
+      continue;
+    }
+    if (!isObject(left) || !isObject(right)) return false;
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (const key of leftKeys) {
+      if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+      pending.push([left[key], right[key]]);
+    }
+  }
+  return true;
 }
 
 function isPoint(v: unknown): v is { x: number; y: number } {
@@ -252,7 +291,6 @@ function parseGroups(
       !isObject(candidate) ||
       typeof candidate.id !== 'string' ||
       candidate.id.length === 0 ||
-      typeof candidate.name !== 'string' ||
       !Array.isArray(candidate.entityIds)
     ) {
       discarded.push({ index, reason: 'invalid-group' });
@@ -262,7 +300,6 @@ function parseGroups(
       discarded.push({ index, reason: 'duplicate-group-id' });
       continue;
     }
-    seen.add(candidate.id);
     if (
       candidate.entityIds.length < 2 ||
       candidate.entityIds.some((id) => typeof id !== 'string')
@@ -270,18 +307,33 @@ function parseGroups(
       discarded.push({ index, reason: 'invalid-group' });
       continue;
     }
-    const entityIds = [...new Set(candidate.entityIds as string[])];
-    if (entityIds.length < 2) {
+    const referencedEntityIds = [...new Set(candidate.entityIds as string[])];
+    if (referencedEntityIds.length < 2) {
       discarded.push({ index, reason: 'invalid-group' });
       continue;
     }
-    if (entityIds.some((id) => !validEntityIds.has(id))) {
-      discarded.push({ index, reason: 'missing-entity-reference' });
+    const entityIds = referencedEntityIds.filter((id) => validEntityIds.has(id));
+    const removedMissingMembers = entityIds.length !== referencedEntityIds.length;
+    if (entityIds.length < 2) {
+      discarded.push({
+        index,
+        reason: removedMissingMembers
+          ? 'missing-entity-reference'
+          : 'invalid-group',
+      });
       continue;
     }
+    if (removedMissingMembers) {
+      // Preserve a still-useful group while reporting that corrupt/missing
+      // members were removed from it.
+      discarded.push({ index, reason: 'missing-entity-reference' });
+    }
+    seen.add(candidate.id);
     values.push({
       id: candidate.id,
-      name: candidate.name.trim() || 'Group',
+      name: typeof candidate.name === 'string' && candidate.name.trim()
+        ? candidate.name
+        : 'Group',
       entityIds,
       locked: candidate.locked === true,
       visible: candidate.visible !== false,
@@ -403,11 +455,11 @@ function parseConstraints(
       discarded.push({ index, reason: 'duplicate-constraint-id' });
       continue;
     }
-    seen.add(constraint.id);
     if (constraintPointIds(constraint).some((id) => !validPointIds.has(id))) {
       discarded.push({ index, reason: 'missing-point-reference' });
       continue;
     }
+    seen.add(constraint.id);
     values.push(constraint);
   }
   return { values, discarded };
@@ -415,7 +467,6 @@ function parseConstraints(
 
 function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
   if (typeof v.id !== 'string') return null;
-  if (typeof v.name !== 'string') return null;
   if (typeof v.layerId !== 'string') return null;
   if (!isPolygonGeometry(v.geometry)) return null;
   const style = isObject(v.style)
@@ -479,7 +530,7 @@ function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
   return {
     id: v.id,
     type: 'polygon',
-    name: v.name,
+    name: typeof v.name === 'string' && v.name.trim() ? v.name : 'Polygon',
     layerId: v.layerId,
     geometry: {
       outer: v.geometry.outer.map((p) => ({ x: p.x, y: p.y })),
@@ -587,6 +638,12 @@ function parseEntity(
   reason: ProjectEntityDecodeFailureReason;
 } {
   if (!isObject(v)) return { ok: false, reason: 'invalid-entity' };
+  if (
+    typeof v.id !== 'string' ||
+    v.id.trim().length === 0
+  ) {
+    return { ok: false, reason: 'invalid-entity-id' };
+  }
   if (v.type === 'polygon') {
     const entity = parsePolygonEntity(v);
     return entity
@@ -656,7 +713,10 @@ export function decodeProject(json: string): ProjectDecodeResult {
   if ('ok' in migrated) return migrated;
   const project = migrated.project;
 
-  if (typeof project.id !== 'string') {
+  if (
+    typeof project.id !== 'string' ||
+    project.id.trim().length === 0
+  ) {
     return { ok: false, reason: 'invalid-project-metadata', version: migrated.sourceVersion };
   }
   if (typeof project.name !== 'string') {
@@ -688,6 +748,7 @@ export function decodeProject(json: string): ProjectDecodeResult {
     return { ok: false, reason: 'invalid-entities', version: migrated.sourceVersion };
   }
   const entities: Entity[] = [];
+  const seenEntityIds = new Set<string>();
   const discardedEntities: Array<{
     index: number;
     reason: ProjectEntityDecodeFailureReason;
@@ -697,8 +758,16 @@ export function decodeProject(json: string): ProjectDecodeResult {
     // Keep the recoverable portion of a project when one entity is corrupt.
     // Project metadata/layers remain strict, but a malformed drawing item must
     // not make every otherwise valid entity inaccessible.
-    if (parsedEntity.ok) entities.push(parsedEntity.entity);
-    else discardedEntities.push({ index, reason: parsedEntity.reason });
+    if (!parsedEntity.ok) {
+      discardedEntities.push({ index, reason: parsedEntity.reason });
+      continue;
+    }
+    if (seenEntityIds.has(parsedEntity.entity.id)) {
+      discardedEntities.push({ index, reason: 'duplicate-entity-id' });
+      continue;
+    }
+    seenEntityIds.add(parsedEntity.entity.id);
+    entities.push(parsedEntity.entity);
   }
   const validEntityIds = new Set(entities.map((entity) => entity.id));
   const groups = parseGroups(project.groups, validEntityIds);
@@ -714,24 +783,29 @@ export function decodeProject(json: string): ProjectDecodeResult {
       ...item,
     })),
   ];
+  const decodedProject: Project = {
+    id: project.id,
+    name: project.name,
+    version: PROJECT_SCHEMA_VERSION,
+    unit: project.unit,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    settings: parseSettings(project.settings),
+    layers,
+    entities,
+    groups: groups.values,
+    constraints: constraints.values,
+  };
+  const normalizedJsonValue = JSON.parse(
+    serializeProject(decodedProject),
+  ) as unknown;
 
   return {
     ok: true,
-    project: {
-      id: project.id,
-      name: project.name,
-      version: PROJECT_SCHEMA_VERSION,
-      unit: project.unit,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      settings: parseSettings(project.settings),
-      layers,
-      entities,
-      groups: groups.values,
-      constraints: constraints.values,
-    },
+    project: decodedProject,
     sourceVersion: migrated.sourceVersion,
     migrations: migrated.migrations,
+    sourceWasNormalized: !jsonValuesEqual(parsed, normalizedJsonValue),
     discardedEntityCount: discardedEntities.length,
     discardedEntities,
     discardedGroupCount: groups.discarded.length,

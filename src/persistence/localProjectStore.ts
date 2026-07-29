@@ -13,6 +13,7 @@ import { deleteUnderlaysForProject } from './underlayStore';
 const LEGACY_PROJECT_KEY = 'pb2d.project';
 const PROJECT_KEY_PREFIX = 'pb2d.project.';
 const BACKUP_KEY_PREFIX = 'pb2d.backups.';
+const RECOVERY_KEY_PREFIX = 'pb2d.recovery.';
 const INDEX_KEY = 'pb2d.projects.index';
 const ACTIVE_PROJECT_KEY = 'pb2d.projects.active';
 const MIGRATION_KEY = 'pb2d.projects.migrated';
@@ -40,6 +41,19 @@ export type ProjectBackupSummary = {
   decodeFailureReason?: ProjectDecodeFailureReason;
 };
 
+export type ProjectRecoverySnapshotSummary = {
+  savedAt: string;
+  projectUpdatedAt: string;
+  name: string;
+  entityCount: number;
+  discardedItemCount: number;
+  discardedReasons: string[];
+  sourceProjectId?: string;
+  decodeFailureReason?: ProjectDecodeFailureReason;
+  /** The recovery wrapper itself is malformed; download returns those bytes. */
+  malformedEnvelope?: boolean;
+};
+
 export type LocalProjectLoadResult = {
   id: string;
   decodeResult: ProjectDecodeResult;
@@ -55,6 +69,7 @@ export type ProjectBackupRestoreResult =
       ok: false;
       reason:
         | 'backup-not-found'
+        | 'recovery-not-found'
         | 'decode-failed'
         | 'project-id-mismatch'
         | 'save-failed';
@@ -70,6 +85,13 @@ type ProjectBackup = {
   id: string;
   savedAt: string;
   projectJson: string;
+};
+
+type ProjectRecoverySnapshot = {
+  savedAt: string;
+  projectJson: string;
+  /** The ID embedded in projectJson when it differs from the local target ID. */
+  sourceProjectId?: string;
 };
 
 function storageAvailable(): boolean {
@@ -165,6 +187,10 @@ function backupKey(id: string): string {
   return `${BACKUP_KEY_PREFIX}${encodeURIComponent(id)}`;
 }
 
+function recoveryKey(id: string): string {
+  return `${RECOVERY_KEY_PREFIX}${encodeURIComponent(id)}`;
+}
+
 function projectSummary(project: Project): StoredProjectSummary {
   return {
     id: project.id,
@@ -250,21 +276,156 @@ function writeBackups(projectId: string, backups: ProjectBackup[]): boolean {
   }
 }
 
-function retainPreviousVersion(projectId: string, projectJson: string): boolean {
+function readRecoverySnapshot(
+  projectId: string,
+): ProjectRecoverySnapshot | null {
+  if (!storageAvailable()) return null;
+  const raw = localStorage.getItem(recoveryKey(projectId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+    const value = parsed as Record<string, unknown>;
+    return typeof value.savedAt === 'string' &&
+      typeof value.projectJson === 'string'
+      ? {
+          savedAt: value.savedAt,
+          projectJson: value.projectJson,
+          sourceProjectId:
+            typeof value.sourceProjectId === 'string'
+              ? value.sourceProjectId
+              : undefined,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Preserve an exact source independently of the rotating backup ring.
+ *
+ * The single recovery slot is immutable until the user explicitly removes
+ * it. A different existing raw source is therefore a conflict, not a
+ * successful preservation: callers must refuse the destructive overwrite.
+ * sourceProjectId permits a shared/imported source to be retained under a new
+ * local target ID and safely remapped when restored.
+ */
+export function preserveProjectRecoverySource(
+  targetProjectId: string,
+  projectJson: string,
+  sourceProjectId?: string,
+): boolean {
+  if (!storageAvailable()) return false;
+  const decoded = decodeProject(projectJson);
+  if (
+    decoded.ok &&
+    sourceProjectId !== undefined &&
+    decoded.project.id !== sourceProjectId
+  ) {
+    return false;
+  }
+  const resolvedSourceProjectId =
+    sourceProjectId ?? (decoded.ok ? decoded.project.id : undefined);
+  const existingEnvelope = localStorage.getItem(recoveryKey(targetProjectId));
+  const existing = readRecoverySnapshot(targetProjectId);
+  if (existingEnvelope !== null && !existing) {
+    // A malformed envelope may itself be the only surviving recovery record.
+    // Never overwrite bytes merely because their wrapper cannot be decoded.
+    return false;
+  }
+  if (existing) {
+    return (
+      existing.projectJson === projectJson &&
+      (
+        existing.sourceProjectId === undefined ||
+        resolvedSourceProjectId === undefined ||
+        existing.sourceProjectId === resolvedSourceProjectId
+      )
+    );
+  }
+  try {
+    localStorage.setItem(
+      recoveryKey(targetProjectId),
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        projectJson,
+        sourceProjectId: resolvedSourceProjectId,
+      } satisfies ProjectRecoverySnapshot),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function retainPreviousVersion(
+  projectId: string,
+  projectJson: string,
+  protectedBackupId?: string,
+): boolean {
   if (!decodeProject(projectJson).ok) return true;
   const backups = readBackups(projectId);
   if (backups[0]?.projectJson === projectJson) return true;
-  const next = [{
+  const current = {
     id: makeId('backup'),
     savedAt: new Date().toISOString(),
     projectJson,
-  }, ...backups].slice(0, MAX_PROJECT_BACKUPS);
+  };
+  const protectedBackup = protectedBackupId === undefined
+    ? undefined
+    : backups.find((backup) => backup.id === protectedBackupId);
+  const next = [current, ...backups];
+  const maximumLength = Math.min(next.length, MAX_PROJECT_BACKUPS);
+  const minimumLength = protectedBackup ? 2 : 1;
   // Quota pressure should reduce retained history before giving up. Replacing
   // the backup blob with a shorter list can succeed without extra free space.
-  for (let length = next.length; length >= 1; length -= 1) {
-    if (writeBackups(projectId, next.slice(0, length))) return true;
+  // During restore, the selected backup remains in every candidate until the
+  // new project body is durable.
+  for (
+    let length = maximumLength;
+    length >= minimumLength;
+    length -= 1
+  ) {
+    const candidate = protectedBackup
+      ? [
+          ...next
+            .filter((backup) => backup.id !== protectedBackup.id)
+            .slice(0, length - 1),
+          protectedBackup,
+        ]
+      : next.slice(0, length);
+    if (writeBackups(projectId, candidate)) return true;
   }
   return false;
+}
+
+/**
+ * A restore is destructive, so unlike an ordinary save it must not proceed
+ * unless the current bytes are retained in either the backup ring or the
+ * permanent recovery slot.
+ */
+function retainCurrentVersionForRestore(
+  projectId: string,
+  protectedBackupId?: string,
+): boolean {
+  const currentJson = localStorage.getItem(projectKey(projectId));
+  if (currentJson === null) return true;
+  const current = decodeProject(currentJson);
+  if (
+    !current.ok ||
+    current.project.id !== projectId ||
+    current.sourceWasNormalized
+  ) {
+    return preserveProjectRecoverySource(
+      projectId,
+      currentJson,
+      current.ok ? current.project.id : projectId,
+    );
+  }
+  return retainPreviousVersion(projectId, currentJson, protectedBackupId);
 }
 
 /** Move the original single-project key into the indexed store at most once. */
@@ -316,6 +477,19 @@ function storageIdFromProjectKey(key: string): string {
   }
 }
 
+function decodeStoredProject(
+  storageId: string,
+  projectJson: string,
+): ProjectDecodeResult {
+  const result = decodeProject(projectJson);
+  if (!result.ok || result.project.id === storageId) return result;
+  return {
+    ok: false,
+    reason: 'project-id-mismatch',
+    version: result.sourceVersion,
+  };
+}
+
 function scanStoredProjects(): ScannedProject[] {
   if (!storageAvailable()) return [];
   const projects: ScannedProject[] = [];
@@ -324,9 +498,10 @@ function scanStoredProjects(): ScannedProject[] {
     if (!key?.startsWith(PROJECT_KEY_PREFIX)) continue;
     const raw = localStorage.getItem(key);
     if (!raw) continue;
+    const storageId = storageIdFromProjectKey(key);
     projects.push({
-      storageId: storageIdFromProjectKey(key),
-      decodeResult: decodeProject(raw),
+      storageId,
+      decodeResult: decodeStoredProject(storageId, raw),
     });
   }
   return projects;
@@ -381,7 +556,7 @@ export function loadProjectByIdResult(id: string): ProjectDecodeResult | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
   const raw = localStorage.getItem(projectKey(id));
-  return raw ? decodeProject(raw) : null;
+  return raw ? decodeStoredProject(id, raw) : null;
 }
 
 export function loadProjectById(id: string): Project | null {
@@ -426,17 +601,37 @@ export function saveProjectToLocal(project: Project): boolean {
   }
   if (previousJson !== null) {
     const previous = decodeProject(previousJson);
-    if (
-      previous.ok &&
-      previous.discardedItemCount > 0 &&
-      serializeProject(previous.project) === nextJson
+    if (previous.ok) {
+      if (
+        previous.sourceWasNormalized &&
+        serializeProject(previous.project) === nextJson
+      ) {
+        // Loading a recoverable file normalizes it in memory. Do not let the
+        // first autosave silently erase the malformed records before the user
+        // has made an intentional edit; the original bytes remain available.
+        upsertIndex(project);
+        setActiveProjectId(project.id);
+        return true;
+      }
+      if (
+        (
+          previous.sourceWasNormalized ||
+          previous.project.id !== project.id
+        ) &&
+        !preserveProjectRecoverySource(
+          project.id,
+          previousJson,
+          previous.project.id,
+        )
+      ) {
+        return false;
+      }
+    } else if (
+      !preserveProjectRecoverySource(project.id, previousJson, project.id)
     ) {
-      // Loading a recoverable file normalizes it in memory. Do not let the
-      // first autosave silently erase the malformed records before the user
-      // has made an intentional edit; the original bytes remain available.
-      upsertIndex(project);
-      setActiveProjectId(project.id);
-      return true;
+      // A completely unreadable body cannot enter the ordinary backup ring.
+      // Refuse to overwrite unless its exact bytes are durably preserved.
+      return false;
     }
   }
 
@@ -476,6 +671,11 @@ export function deleteLocalProject(id: string): boolean {
     localStorage.removeItem(backupKey(id));
   } catch {
     // Best effort.
+  }
+  try {
+    localStorage.removeItem(recoveryKey(id));
+  } catch {
+    // Best effort. The project body is already gone.
   }
   let remaining: StoredProjectSummary[] = [];
   try {
@@ -556,13 +756,105 @@ export function listProjectBackups(projectId: string): ProjectBackupSummary[] {
   });
 }
 
+export function getProjectRecoverySnapshot(
+  projectId: string,
+): ProjectRecoverySnapshotSummary | null {
+  if (!storageAvailable()) return null;
+  migrateLegacyProject();
+  const envelopeJson = localStorage.getItem(recoveryKey(projectId));
+  if (envelopeJson === null) return null;
+  const snapshot = readRecoverySnapshot(projectId);
+  if (!snapshot) {
+    return {
+      savedAt: UNREADABLE_PROJECT_DATE,
+      projectUpdatedAt: UNREADABLE_PROJECT_DATE,
+      name: 'Unreadable recovery envelope',
+      entityCount: 0,
+      discardedItemCount: 0,
+      discardedReasons: [],
+      decodeFailureReason: 'invalid-json',
+      malformedEnvelope: true,
+    };
+  }
+  const result = decodeProject(snapshot.projectJson);
+  if (!result.ok) {
+    return {
+      savedAt: snapshot.savedAt,
+      projectUpdatedAt: snapshot.savedAt,
+      name: 'Unreadable recovery source',
+      entityCount: 0,
+      discardedItemCount: 0,
+      discardedReasons: [],
+      sourceProjectId: snapshot.sourceProjectId,
+      decodeFailureReason: result.reason,
+    };
+  }
+  return {
+    savedAt: snapshot.savedAt,
+    projectUpdatedAt: result.project.updatedAt,
+    name: result.project.name,
+    entityCount: result.project.entities.length,
+    discardedItemCount: result.discardedItemCount,
+    discardedReasons: [...new Set(
+      result.discardedItems.map((item) => item.reason),
+    )],
+    sourceProjectId: snapshot.sourceProjectId,
+  };
+}
+
+/** Return the exact preserved bytes for explicit user export/download. */
+export function getProjectRecoverySourceJson(projectId: string): string | null {
+  if (!storageAvailable()) return null;
+  migrateLegacyProject();
+  const envelopeJson = localStorage.getItem(recoveryKey(projectId));
+  if (envelopeJson === null) return null;
+  return readRecoverySnapshot(projectId)?.projectJson ?? envelopeJson;
+}
+
+export function restoreProjectRecoverySnapshot(
+  projectId: string,
+): ProjectBackupRestoreResult {
+  migrateLegacyProject();
+  const snapshot = readRecoverySnapshot(projectId);
+  if (!snapshot) return { ok: false, reason: 'recovery-not-found' };
+  const decodeResult = decodeProject(snapshot.projectJson);
+  if (!decodeResult.ok) {
+    return { ok: false, reason: 'decode-failed', decodeResult };
+  }
+  const expectedSourceProjectId = snapshot.sourceProjectId ?? projectId;
+  if (decodeResult.project.id !== expectedSourceProjectId) {
+    return { ok: false, reason: 'project-id-mismatch' };
+  }
+  if (!retainCurrentVersionForRestore(projectId)) {
+    return { ok: false, reason: 'save-failed' };
+  }
+  const restored = {
+    ...decodeResult.project,
+    id: projectId,
+    updatedAt: new Date().toISOString(),
+  };
+  if (!saveProjectToLocal(restored)) return { ok: false, reason: 'save-failed' };
+  return { ok: true, project: restored, decodeResult };
+}
+
+export function deleteProjectRecoverySnapshot(projectId: string): boolean {
+  if (!storageAvailable()) return false;
+  try {
+    localStorage.removeItem(recoveryKey(projectId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Restore a snapshot while first backing up the project's current saved value. */
 export function restoreProjectBackupResult(
   projectId: string,
   backupId: string,
 ): ProjectBackupRestoreResult {
   migrateLegacyProject();
-  const backup = readBackups(projectId).find((entry) => entry.id === backupId);
+  const backupsBeforeRestore = readBackups(projectId);
+  const backup = backupsBeforeRestore.find((entry) => entry.id === backupId);
   if (!backup) return { ok: false, reason: 'backup-not-found' };
   const decodeResult = decodeProject(backup.projectJson);
   if (!decodeResult.ok) {
@@ -571,11 +863,45 @@ export function restoreProjectBackupResult(
   if (decodeResult.project.id !== projectId) {
     return { ok: false, reason: 'project-id-mismatch' };
   }
+  if (
+    decodeResult.sourceWasNormalized &&
+    !preserveProjectRecoverySource(
+      projectId,
+      backup.projectJson,
+      decodeResult.project.id,
+    )
+  ) {
+    // Do not let saveProjectToLocal rotate the selected raw source out of the
+    // capped backup ring unless an exact permanent copy already exists.
+    return { ok: false, reason: 'save-failed' };
+  }
+  if (!retainCurrentVersionForRestore(projectId, backupId)) {
+    return { ok: false, reason: 'save-failed' };
+  }
   const restored = {
     ...decodeResult.project,
     updatedAt: new Date().toISOString(),
   };
   if (!saveProjectToLocal(restored)) return { ok: false, reason: 'save-failed' };
+  const remainingBackups = readBackups(projectId).filter(
+    (entry) => entry.id !== backupId,
+  );
+  const retainedIds = new Set(remainingBackups.map((entry) => entry.id));
+  for (const previous of backupsBeforeRestore) {
+    if (
+      previous.id !== backupId &&
+      !retainedIds.has(previous.id) &&
+      remainingBackups.length < MAX_PROJECT_BACKUPS
+    ) {
+      remainingBackups.push(previous);
+      retainedIds.add(previous.id);
+    }
+  }
+  // Once the restored body is durable, keeping an extra identical snapshot is
+  // unnecessary. Refill any slot temporarily sacrificed to protect it during
+  // the transaction. Failure to prune/refill is harmless and remains best
+  // effort.
+  writeBackups(projectId, remainingBackups);
   return { ok: true, project: restored, decodeResult };
 }
 

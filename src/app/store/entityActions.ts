@@ -54,29 +54,33 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       metadata?: PolygonEntity['metadata'];
       name?: string;
     },
-  ): PolygonEntity[] {
-    const validation = getEngine().validate(geometries);
-    if (!validation.valid) {
-      get().setErrorMessage(`errors.validation.${validation.issues[0]}`);
-      return [];
-    }
-    const normalized = getEngine().normalize(geometries);
-    if (normalized.length === 0) {
-      get().setErrorMessage('errors.invalidPolygon');
-      return [];
-    }
+  ): { entities: PolygonEntity[]; errorMessage: string | null } {
     const state = get();
     const layer = resolveDrawingLayer(state.project, state.ui.activeLayerId);
     if (!layer) {
-      get().setErrorMessage('errors.noDrawableLayer');
-      return [];
+      return { entities: [], errorMessage: 'errors.noDrawableLayer' };
     }
-    return normalized.map((geometry) =>
-      createPolygonEntity(geometry, {
-        ...options(geometry),
-        layerId: layer.id,
-      }),
-    );
+    const entities: PolygonEntity[] = [];
+    let errorMessage: string | null = null;
+    for (const geometry of geometries) {
+      const validation = getEngine().validate([geometry]);
+      if (!validation.valid) {
+        errorMessage ??= `errors.validation.${validation.issues[0]}`;
+        continue;
+      }
+      const normalized = getEngine().normalize([geometry]);
+      if (normalized.length === 0) {
+        errorMessage ??= 'errors.invalidPolygon';
+        continue;
+      }
+      entities.push(...normalized.map((item) =>
+        createPolygonEntity(item, {
+          ...options(item),
+          layerId: layer.id,
+        }),
+      ));
+    }
+    return { entities, errorMessage };
   }
 
   function commitAddedEntities(entities: Entity[]): void {
@@ -94,10 +98,12 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
 
   return {
     addPolygonFromOuter: (outer, metadata) => {
-      const [entity] = preparePolygonEntities(
+      const prepared = preparePolygonEntities(
         [{ outer, holes: [] }],
         () => ({ metadata }),
       );
+      if (prepared.errorMessage) get().setErrorMessage(prepared.errorMessage);
+      const [entity] = prepared.entities;
       if (!entity) return null;
       commitAddedEntities([entity]);
       return entity;
@@ -105,25 +111,28 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
 
     importPolygonGeometries: (geometries) => {
       if (geometries.length === 0) return [];
-      const entities = preparePolygonEntities(geometries, () => ({
+      const prepared = preparePolygonEntities(geometries, () => ({
           metadata: { sourceShape: 'svg-import', createdByOperation: 'import' },
       }));
-      commitAddedEntities(entities);
-      return entities;
+      commitAddedEntities(prepared.entities);
+      if (prepared.errorMessage) get().setErrorMessage(prepared.errorMessage);
+      return prepared.entities;
     },
 
     importDrawingGeometries: (geometries, linears) => {
-      const polygonEntities = geometries.length > 0
+      const prepared = geometries.length > 0
         ? preparePolygonEntities(geometries, () => ({
             metadata: { sourceShape: 'polygon', createdByOperation: 'import' },
           }))
-        : [];
+        : { entities: [], errorMessage: null };
       const state = get();
       const layer = resolveDrawingLayer(state.project, state.ui.activeLayerId);
       if (!layer && linears.length > 0) {
         state.setErrorMessage('errors.noDrawableLayer');
-        return polygonEntities;
+        commitAddedEntities(prepared.entities);
+        return prepared.entities;
       }
+      let invalidLinearCount = 0;
       const linearEntities = layer
         ? linears.flatMap((item) => {
             const valid =
@@ -138,13 +147,17 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
                     point.y - item.points[0].y,
                   ) > 1e-9,
               );
+            if (!valid) invalidLinearCount += 1;
             return valid
               ? [createLinearEntity(item.points, item.kind, { layerId: layer.id })]
               : [];
           })
         : [];
-      const entities: Entity[] = [...polygonEntities, ...linearEntities];
+      const entities: Entity[] = [...prepared.entities, ...linearEntities];
       commitAddedEntities(entities);
+      const importError = prepared.errorMessage ??
+        (invalidLinearCount > 0 ? 'errors.invalidImportedLine' : null);
+      if (importError) get().setErrorMessage(importError);
       return entities;
     },
 

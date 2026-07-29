@@ -10,6 +10,7 @@ import {
 } from '../app/layers';
 import { projectPointKey } from '../app/projectConstraints';
 import { buildDxf } from '../persistence/dxfExport';
+import { importDxfString } from '../persistence/dxfImport';
 import { buildSvg } from '../persistence/svgExport';
 
 function resetStore(): void {
@@ -163,6 +164,44 @@ describe('layer store actions', () => {
     expect(useAppStore.getState().project.layers).toHaveLength(1);
     expect(useAppStore.getState().history.past).toEqual([]);
   });
+
+  it('reports why a protected layer cannot be deleted', () => {
+    const entity = seedSquare();
+    const layer = useAppStore.getState().addLayer();
+    useAppStore.setState((state) => ({
+      project: {
+        ...state.project,
+        entities: state.project.entities.map((item) =>
+          item.id === entity.id
+            ? { ...item, layerId: layer.id, locked: true }
+            : item,
+        ),
+      },
+      history: { past: [], future: [] },
+    }));
+
+    useAppStore.getState().removeLayer(layer.id);
+
+    expect(useAppStore.getState().ui.errorMessage).toBe(
+      'errors.layerDeleteProtected',
+    );
+    expect(useAppStore.getState().project.layers).toContainEqual(layer);
+    expect(useAppStore.getState().history.past).toEqual([]);
+  });
+
+  it('preserves selection order when assigning entities to a layer', () => {
+    const [first, second] = seedPair();
+    const layer = useAppStore.getState().addLayer();
+    useAppStore.setState({ history: { past: [], future: [] } });
+    useAppStore.getState().selectMany([second.id, first.id]);
+
+    useAppStore.getState().assignSelectedToLayer(layer.id);
+
+    expect(useAppStore.getState().selectedEntityIds).toEqual([
+      second.id,
+      first.id,
+    ]);
+  });
 });
 
 describe('clipboard store actions', () => {
@@ -292,11 +331,55 @@ describe('clipboard store actions', () => {
     expect(useAppStore.getState().selectedEntityIds).toEqual([]);
     expect(buildSvg(project)).not.toContain('<path');
     expect(buildDxf(project)).not.toContain('LWPOLYLINE');
+
+    useAppStore.setState({
+      selectedEntityIds: [first.id],
+      history: { past: [], future: [] },
+    });
+    useAppStore.getState().translateEntities([first.id], 5, 0);
+    useAppStore.getState().cutSelected();
+    useAppStore.getState().removeEntities([first.id]);
+    expect(polygon(first.id).geometry.outer[0].x).toBe(0);
+    expect(useAppStore.getState().project.entities).toHaveLength(2);
+    expect(useAppStore.getState().clipboard.entities).toEqual([]);
+    expect(useAppStore.getState().history.past).toEqual([]);
   });
 });
 
 describe('hole, primitive and validation store actions', () => {
   beforeEach(resetStore);
+
+  it('imports a DXF hole that shares an outer edge without losing its area', () => {
+    const parsed = importDxfString([
+      0, 'SECTION', 2, 'ENTITIES',
+      0, 'LWPOLYLINE', 8, 'Faces', 70, 1, 90, 4,
+      10, 0, 20, 0,
+      10, 100, 20, 0,
+      10, 100, 20, 100,
+      10, 0, 20, 100,
+      0, 'LWPOLYLINE', 8, 'Faces', 70, 1, 90, 4,
+      10, 0, 20, 30,
+      10, 40, 20, 30,
+      10, 40, 20, 70,
+      10, 0, 20, 70,
+      0, 'ENDSEC', 0, 'EOF',
+    ].join('\n'));
+
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.polygons).toHaveLength(1);
+    expect(parsed.polygons[0].holes).toHaveLength(1);
+
+    const imported = useAppStore.getState().importDrawingGeometries(
+      parsed.polygons,
+      parsed.polylines,
+    );
+
+    expect(imported).toHaveLength(1);
+    expect(imported[0].type).toBe('polygon');
+    if (imported[0].type !== 'polygon') return;
+    expect(polygonArea(imported[0].geometry)).toBeCloseTo(8_400, 6);
+    expect(useAppStore.getState().ui.errorMessage).toBeNull();
+  });
 
   it('adds and removes a valid hole with full undo/redo history', () => {
     const entity = seedSquare();
@@ -453,7 +536,47 @@ describe('hole, primitive and validation store actions', () => {
     expect(useAppStore.getState().project.constraints).toEqual([]);
   });
 
-  it.each(['insert', 'delete', 'simplify'] as const)(
+  it('keeps valid constraints and reindexes their points when inserting a vertex', () => {
+    const entity = seedSquare();
+    constrainFirstEdge(entity);
+    useAppStore.setState({ history: { past: [], future: [] } });
+    const originalConstraint =
+      useAppStore.getState().project.constraints?.[0];
+
+    useAppStore.getState().insertVertex(
+      {
+        entityId: entity.id,
+        ringType: 'outer',
+        vertexIndex: 0,
+      },
+      { x: 50, y: 0 },
+    );
+
+    expect(useAppStore.getState().project.constraints).toEqual([
+      {
+        ...originalConstraint,
+        b: projectPointKey({
+          entityId: entity.id,
+          ring: 'outer',
+          pointIndex: 2,
+        }),
+      },
+    ]);
+    useAppStore.getState().undo();
+    expect(useAppStore.getState().project.constraints).toEqual([
+      originalConstraint,
+    ]);
+    useAppStore.getState().redo();
+    expect(useAppStore.getState().project.constraints?.[0]).toMatchObject({
+      b: projectPointKey({
+        entityId: entity.id,
+        ring: 'outer',
+        pointIndex: 2,
+      }),
+    });
+  });
+
+  it.each(['delete', 'simplify'] as const)(
     'removes entity constraints when %s changes vertex topology',
     (operation) => {
       const entity =
@@ -477,16 +600,7 @@ describe('hole, primitive and validation store actions', () => {
       constrainFirstEdge(entity);
       useAppStore.setState({ history: { past: [], future: [] } });
 
-      if (operation === 'insert') {
-        useAppStore.getState().insertVertex(
-          {
-            entityId: entity.id,
-            ringType: 'outer',
-            vertexIndex: 0,
-          },
-          { x: 50, y: 0 },
-        );
-      } else if (operation === 'delete') {
+      if (operation === 'delete') {
         useAppStore.getState().deleteVertex({
           entityId: entity.id,
           ringType: 'outer',
@@ -500,6 +614,27 @@ describe('hole, primitive and validation store actions', () => {
       expect(useAppStore.getState().project.constraints).toEqual([]);
     },
   );
+
+  it('validates locked polygons instead of treating them as absent', () => {
+    const entity = createPolygonEntity({
+      outer: [
+        { x: 0, y: 0 },
+        { x: 10, y: 10 },
+        { x: 0, y: 10 },
+        { x: 10, y: 0 },
+      ],
+      holes: [],
+    });
+    useAppStore.setState((state) => ({
+      project: {
+        ...state.project,
+        entities: [{ ...entity, locked: true }],
+      },
+    }));
+
+    expect(useAppStore.getState().validateEntity(entity.id)).toBe(false);
+    expect(useAppStore.getState().ui.invalidEntityIds).toContain(entity.id);
+  });
 
   it('marks invalid geometry, supports undo/redo of the model, and can revalidate after redo', () => {
     const entity = seedSquare();

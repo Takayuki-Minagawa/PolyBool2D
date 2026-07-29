@@ -1,0 +1,75 @@
+{
+  "id": "fixture-project-v0.1",
+  "name": "Version 0.1 fixture",
+  "version": "0.1.0",
+  "unit": "mm",
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-02T00:00:00.000Z",
+  "settings": {
+    "gridSize": 50,
+    "snapToGrid": true,
+    "snapToVertex": true,
+    "snapToEdge": true,
+    "snapTolerancePx": 10,
+    "areaPrecision": 2,
+    "coordinatePrecision": 2,
+    "circleSegments": 32,
+    "areaDisplayUnit": "cm2"
+  },
+  "layers": [
+    {
+      "id": "layer-default",
+      "name": "Legacy layer",
+      "visible": true,
+      "locked": false,
+      "color": "#3a8dde"
+    }
+  ],
+  "entities": [
+    {
+      "id": "fixture-v01-polygon",
+      "type": "polygon",
+      "name": "Legacy rectangle",
+      "layerId": "layer-default",
+      "geometry": {
+        "outer": [
+          { "x": 0, "y": 0 },
+          { "x": 60, "y": 0 },
+          { "x": 60, "y": 40 },
+          { "x": 0, "y": 40 }
+        ],
+        "holes": []
+      },
+      "style": {
+        "fill": "#99bbdd",
+        "stroke": "#224466",
+        "strokeWidth": 1.5,
+        "opacity": 0.75
+      },
+      "locked": false,
+      "visible": true,
+      "metadata": {
+        "sourceShape": "rectangle",
+        "createdByOperation": "draw"
+      }
+    },
+    {
+      "id": "fixture-v01-guide",
+      "type": "guide-line",
+      "name": "Legacy guide",
+      "kind": "guide",
+      "layerId": "layer-default",
+      "points": [
+        { "x": -20, "y": 20 },
+        { "x": 80, "y": 20 }
+      ],
+      "style": {
+        "stroke": "#557799",
+        "strokeWidth": 1,
+        "opacity": 0.8
+      },
+      "locked": false,
+      "visible": true
+    }
+  ]
+}

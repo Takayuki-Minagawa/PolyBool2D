@@ -28,6 +28,18 @@ describe('reasoned project decoding and migrations', () => {
     expect(deserializeProject('{')).toBeNull();
   });
 
+  it('rejects a blank project ID as invalid metadata', () => {
+    const project = createEmptyProject();
+    const raw = JSON.parse(serializeProject(project));
+    raw.id = '   ';
+
+    expect(decodeProject(JSON.stringify(raw))).toEqual({
+      ok: false,
+      reason: 'invalid-project-metadata',
+      version: PROJECT_SCHEMA_VERSION,
+    });
+  });
+
   it('runs the 0.1 migration chain and reports discarded entities', () => {
     const project = createEmptyProject();
     project.entities = [createPolygonEntity({

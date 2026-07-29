@@ -63,4 +63,40 @@ describe('CommitInput', () => {
     expect(input.value).toBe('Original');
     expect(document.activeElement).not.toBe(input);
   });
+
+  it('clears a stale canceled-blur flag when the input is focused again', () => {
+    const onCommit = vi.fn();
+    act(() => {
+      root = createRoot(host!);
+      root.render(
+        <CommitInput
+          aria-label="Name"
+          value="Original"
+          onCommit={onCommit}
+        />,
+      );
+    });
+    const input = host!.querySelector('input') as HTMLInputElement;
+    vi.spyOn(input, 'blur').mockImplementation(() => {});
+
+    act(() => {
+      input.focus();
+      setInputValue(input, 'Canceled');
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    act(() => {
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      setInputValue(input, 'Saved');
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    });
+
+    expect(onCommit).toHaveBeenCalledOnce();
+    expect(onCommit).toHaveBeenCalledWith('Saved');
+  });
 });

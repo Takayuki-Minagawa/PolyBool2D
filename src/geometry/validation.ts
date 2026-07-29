@@ -1,5 +1,7 @@
 import { polygonArea, signedRingArea } from './area';
 import { pointInRing, segmentIntersection } from './intersections';
+import { ringBBox, type BBox } from './measure';
+import { ringsContainedInRingClosure } from './ringNesting';
 import { BBoxSpatialIndex } from './spatialIndex';
 import type {
   GeometryValidationIssue,
@@ -27,6 +29,15 @@ function edgeBBox(start: Point, end: Point, tolerance: number) {
     minY: Math.min(start.y, end.y) - tolerance,
     maxX: Math.max(start.x, end.x) + tolerance,
     maxY: Math.max(start.y, end.y) + tolerance,
+  };
+}
+
+function expandedBBox(bbox: BBox, tolerance: number): BBox {
+  return {
+    minX: bbox.minX - tolerance,
+    minY: bbox.minY - tolerance,
+    maxX: bbox.maxX + tolerance,
+    maxY: bbox.maxY + tolerance,
   };
 }
 
@@ -146,21 +157,34 @@ export function validatePolygon(poly: PolygonGeometry): GeometryValidationResult
     }
   }
   if (poly.outer.length >= 3) {
-    for (const h of poly.holes) {
-      if (h.length < 3) continue;
-      if (!pointInRing(h[0], poly.outer) || ringsIntersect(h, poly.outer)) {
-        pushIssueOnce(issues, 'hole-outside-outer');
-        break;
-      }
+    const holes = poly.holes.filter((hole) => hole.length >= 3);
+    if (!ringsContainedInRingClosure(holes, poly.outer)) {
+      pushIssueOnce(issues, 'hole-outside-outer');
     }
   }
-  for (let i = 0; i < poly.holes.length; i++) {
-    const a = poly.holes[i];
-    if (a.length < 3) continue;
-    for (let j = i + 1; j < poly.holes.length; j++) {
-      const b = poly.holes[j];
-      if (b.length < 3) continue;
-      if (ringsIntersect(a, b) || pointInRing(a[0], b) || pointInRing(b[0], a)) {
+  const indexedHoles = poly.holes.flatMap((ring, index) => {
+    if (ring.length < 3) return [];
+    const bbox = ringBBox(ring);
+    if (!bbox) return [];
+    const tolerance = ringCoordinateTolerance(ring);
+    return [{ index, ring, bbox, tolerance }];
+  });
+  const holeIndex = new BBoxSpatialIndex(
+    indexedHoles.map((hole) => ({
+      bbox: expandedBBox(hole.bbox, hole.tolerance),
+      value: hole,
+    })),
+  );
+  for (const a of indexedHoles) {
+    for (const b of holeIndex.queryValues(
+      expandedBBox(a.bbox, a.tolerance),
+    )) {
+      if (b.index <= a.index) continue;
+      if (
+        ringsIntersect(a.ring, b.ring) ||
+        pointInRing(a.ring[0], b.ring) ||
+        pointInRing(b.ring[0], a.ring)
+      ) {
         pushIssueOnce(issues, 'hole-overlap');
         break;
       }

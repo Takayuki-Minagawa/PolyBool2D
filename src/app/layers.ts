@@ -21,7 +21,7 @@ export function isEntityEffectivelyLocked(project: Project, entity: Entity): boo
   return entity.locked || layer?.locked === true || groupLocked;
 }
 
-/** Expand groups, then retain only entities that are writable under every lock. */
+/** Expand visible groups, then retain entities writable under visibility and lock rules. */
 export function unlockedEntityIds(
   project: Project,
   ids: Iterable<string>,
@@ -29,20 +29,23 @@ export function unlockedEntityIds(
   const entitiesById = new Map(
     project.entities.map((entity) => [entity.id, entity]),
   );
-  const unlockedSeeds = [...ids].filter((id) => {
+  const editableSeeds = [...ids].filter((id) => {
     const entity = entitiesById.get(id);
-    return entity && !isEntityEffectivelyLocked(project, entity);
+    return (
+      entity &&
+      isEntityEffectivelyVisible(project, entity) &&
+      !isEntityEffectivelyLocked(project, entity)
+    );
   });
-  const expanded = new Set(
-    expandGroupedSelection(unlockedSeeds, project.groups ?? []),
-  );
-  return project.entities
-    .filter(
-      (entity) =>
-        expanded.has(entity.id) &&
-        !isEntityEffectivelyLocked(project, entity),
-    )
-    .map((entity) => entity.id);
+  return expandGroupedSelection(editableSeeds, project.groups ?? [])
+    .filter((id) => {
+      const entity = entitiesById.get(id);
+      return (
+        entity !== undefined &&
+        isEntityEffectivelyVisible(project, entity) &&
+        !isEntityEffectivelyLocked(project, entity)
+      );
+    });
 }
 
 export function uniqueLayerName(layers: Layer[], preferred = 'Layer'): string {

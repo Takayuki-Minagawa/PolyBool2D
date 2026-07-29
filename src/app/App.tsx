@@ -13,11 +13,13 @@ import { makeId } from './idUtils';
 import { projectDecodeFeedback } from './projectDecodeFeedback';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
 import {
+  deleteProjectRecoverySnapshot,
   loadProjectFromLocalResult,
+  preserveProjectRecoverySource,
   saveProjectToLocal,
 } from '../persistence/localProjectStore';
 import {
-  decodeProjectFromShareHashResult,
+  decodeProjectFromShareHashSourceOutcome,
   SHARE_HASH_PREFIX,
 } from '../persistence/shareUrl';
 
@@ -49,19 +51,37 @@ export function App() {
   // A shared URL takes priority over the locally active project. Keep
   // autosave paused until the asynchronous shared payload has been decoded.
   useEffect(() => {
-    const loadLocal = () => {
+    const loadLocal = (): string | null => {
       const stored = loadProjectFromLocalResult();
-      if (!stored) return;
+      if (!stored) return null;
       const feedback = projectDecodeFeedback(
         stored.decodeResult,
         (key, options) => i18n.t(key, options),
       );
       if (!stored.decodeResult.ok) {
         if (feedback) setErrorMessage(feedback);
-        return;
+        return feedback;
       }
       loadProject(stored.decodeResult.project);
       if (feedback) setErrorMessage(feedback);
+      return feedback;
+    };
+    const clearShareHash = () => {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${window.location.search}`,
+      );
+    };
+    const combineDiagnostics = (
+      primary: string,
+      secondary: string | null,
+    ): string => secondary ? `${primary} ${secondary}` : primary;
+    const finishWithLocalFallback = (primary: string, clearHash: boolean) => {
+      if (clearHash) clearShareHash();
+      const localFeedback = loadLocal();
+      setErrorMessage(combineDiagnostics(primary, localFeedback));
+      setInitialized(true);
     };
 
     const hash = window.location.hash;
@@ -72,24 +92,55 @@ export function App() {
     }
 
     let cancelled = false;
-    void decodeProjectFromShareHashResult(hash)
-      .then((sharedResult) => {
+    void decodeProjectFromShareHashSourceOutcome(hash)
+      .then((sharedAttempt) => {
         if (cancelled) return;
-        window.history.replaceState(
-          window.history.state,
-          '',
-          `${window.location.pathname}${window.location.search}`,
-        );
+        if (!sharedAttempt.ok) {
+          finishWithLocalFallback(
+            i18n.t('errors.shareInvalid'),
+            !sharedAttempt.retryable,
+          );
+          return;
+        }
+        const sharedSource = sharedAttempt.value;
+        const sharedResult = sharedSource.decodeResult;
         if (sharedResult?.ok) {
           const now = new Date().toISOString();
           // A shared snapshot becomes an independent local project. Reusing
           // its source ID could silently replace a newer local copy.
-          loadProject({
+          const independentProject = {
             ...sharedResult.project,
             id: makeId('project'),
             createdAt: now,
             updatedAt: now,
-          });
+          };
+          let stagedRecovery = false;
+          if (
+            sharedResult.sourceWasNormalized &&
+            (
+              !preserveProjectRecoverySource(
+                independentProject.id,
+                sharedSource.sourceJson,
+                sharedResult.project.id,
+              )
+            )
+          ) {
+            finishWithLocalFallback(i18n.t('errors.saveFailed'), false);
+            return;
+          }
+          stagedRecovery = sharedResult.sourceWasNormalized;
+          // Do not remove the only URL copy until both the normalized project
+          // and the exact pre-normalization bytes are durable under the new
+          // local ID.
+          if (!saveProjectToLocal(independentProject)) {
+            if (stagedRecovery) {
+              deleteProjectRecoverySnapshot(independentProject.id);
+            }
+            finishWithLocalFallback(i18n.t('errors.saveFailed'), false);
+            return;
+          }
+          clearShareHash();
+          loadProject(independentProject);
           const feedback = projectDecodeFeedback(
             sharedResult,
             (key, options) => i18n.t(key, options),
@@ -102,21 +153,20 @@ export function App() {
                 (key, options) => i18n.t(key, options),
               )
             : null;
-          setErrorMessage(feedback ?? 'errors.shareInvalid');
-          loadLocal();
+          finishWithLocalFallback(
+            feedback ?? i18n.t('errors.shareInvalid'),
+            false,
+          );
+          return;
         }
         setInitialized(true);
       })
       .catch(() => {
         if (cancelled) return;
-        window.history.replaceState(
-          window.history.state,
-          '',
-          `${window.location.pathname}${window.location.search}`,
+        finishWithLocalFallback(
+          i18n.t('errors.shareInvalid'),
+          false,
         );
-        setErrorMessage('errors.shareInvalid');
-        loadLocal();
-        setInitialized(true);
       });
 
     return () => {
@@ -137,7 +187,11 @@ export function App() {
   // final guard covers closing or reloading the tab before the timer fires.
   useEffect(() => {
     if (!initialized) return;
-    const flush = () => saveProjectToLocal(latestProjectRef.current);
+    const flush = (event?: BeforeUnloadEvent) => {
+      if (saveProjectToLocal(latestProjectRef.current) || !event) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
     window.addEventListener('beforeunload', flush);
     return () => {
       window.removeEventListener('beforeunload', flush);

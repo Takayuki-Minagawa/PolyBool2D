@@ -17,6 +17,7 @@ import {
   ensureOuterCCW,
   normalizeMultiPolygon,
 } from './normalize';
+import { isFiniteRing } from './numeric';
 import { validatePolygon } from './validation';
 import type {
   GeometryEngine,
@@ -31,6 +32,10 @@ import type {
 const MAX_CLIPPER_PRECISION = 8;
 const MIN_CLIPPER_PRECISION = -8;
 const SAFE_INTEGER_MARGIN = 0.99;
+const MAX_CLIPPER_COORDINATE =
+  Number.MAX_SAFE_INTEGER *
+  SAFE_INTEGER_MARGIN *
+  10 ** -MIN_CLIPPER_PRECISION;
 
 export type Clipper2JoinType = 'round' | 'miter' | 'square';
 
@@ -53,6 +58,51 @@ function multiPolygonToPaths(input: MultiPolygonGeometry): PathsD {
     ringToPath(polygon.outer),
     ...polygon.holes.map(ringToPath),
   ]);
+}
+
+function isRepairableRing(ring: Ring): boolean {
+  return ring.length >= 3 && isFiniteRing(ring);
+}
+
+function assertClipperCoordinateRange(
+  input: MultiPolygonGeometry,
+): void {
+  for (const polygon of input) {
+    for (const ring of [polygon.outer, ...polygon.holes]) {
+      for (const point of ring) {
+        if (
+          (Number.isFinite(point.x) &&
+            Math.abs(point.x) > MAX_CLIPPER_COORDINATE) ||
+          (Number.isFinite(point.y) &&
+            Math.abs(point.y) > MAX_CLIPPER_COORDINATE)
+        ) {
+          throw new RangeError(
+            'Clipper2 coordinates exceed the supported range',
+          );
+        }
+      }
+    }
+  }
+}
+
+function repairablePolygons(
+  input: MultiPolygonGeometry,
+): MultiPolygonGeometry {
+  assertClipperCoordinateRange(input);
+  return input.flatMap((polygon) =>
+    isRepairableRing(polygon.outer)
+      ? [{
+          outer: polygon.outer,
+          holes: polygon.holes.filter(isRepairableRing),
+        }]
+      : [],
+  );
+}
+
+function safeNormalizedPolygons(
+  input: MultiPolygonGeometry,
+): MultiPolygonGeometry {
+  return normalizeMultiPolygon(repairablePolygons(input));
 }
 
 function clipperPrecision(paths: PathsD, expansion = 0): number {
@@ -118,9 +168,9 @@ function executeBoolean(
   subject: MultiPolygonGeometry,
   clip: MultiPolygonGeometry | null,
 ): MultiPolygonGeometry {
-  const normalizedSubject = normalizeMultiPolygon(subject);
+  const normalizedSubject = safeNormalizedPolygons(subject);
+  const normalizedClip = clip ? safeNormalizedPolygons(clip) : null;
   if (normalizedSubject.length === 0) return [];
-  const normalizedClip = clip ? normalizeMultiPolygon(clip) : null;
   const subjectPaths = multiPolygonToPaths(normalizedSubject);
   const clipPaths = normalizedClip
     ? multiPolygonToPaths(normalizedClip)
@@ -153,8 +203,9 @@ function executeBoolean(
 export function repairWithClipper2(
   input: MultiPolygonGeometry,
 ): MultiPolygonGeometry {
-  if (input.length === 0) return [];
-  const orientedInput = input.map((polygon) => ({
+  const repairable = repairablePolygons(input);
+  if (repairable.length === 0) return [];
+  const orientedInput = repairable.map((polygon) => ({
     outer:
       signedRingArea(polygon.outer) === 0
         ? polygon.outer
@@ -203,7 +254,7 @@ export function offsetWithClipper2(
   options: Clipper2OffsetOptions = {},
 ): MultiPolygonGeometry {
   if (!Number.isFinite(distance) || input.length === 0) return [];
-  const normalized = normalizeMultiPolygon(input);
+  const normalized = safeNormalizedPolygons(input);
   if (normalized.length === 0 || distance === 0) return normalized;
   const paths = multiPolygonToPaths(normalized);
   const resolvedMiterLimit = Number.isFinite(options.miterLimit)
@@ -213,7 +264,6 @@ export function offsetWithClipper2(
     options.join === 'miter' ? resolvedMiterLimit : 1
   );
   const precision = clipperPrecision(paths, maximumExpansion);
-
   const inflated = inflatePathsD(
     paths,
     distance,
@@ -260,14 +310,17 @@ export class Clipper2Engine implements GeometryEngine {
     subject: MultiPolygonGeometry,
     cutters: MultiPolygonGeometry,
   ): MultiPolygonGeometry {
+    assertClipperCoordinateRange(subject);
+    assertClipperCoordinateRange(cutters);
     if (subject.length === 0) return [];
-    if (cutters.length === 0) return normalizeMultiPolygon(subject);
+    if (cutters.length === 0) return safeNormalizedPolygons(subject);
     return executeBoolean(ClipType.Difference, subject, cutters);
   }
 
   intersection(input: MultiPolygonGeometry): MultiPolygonGeometry {
+    assertClipperCoordinateRange(input);
     if (input.length === 0) return [];
-    let result: MultiPolygonGeometry = normalizeMultiPolygon([input[0]]);
+    let result: MultiPolygonGeometry = safeNormalizedPolygons([input[0]]);
     for (let index = 1; index < input.length && result.length > 0; index += 1) {
       result = executeBoolean(ClipType.Intersection, result, [input[index]]);
     }
@@ -275,10 +328,11 @@ export class Clipper2Engine implements GeometryEngine {
   }
 
   xor(input: MultiPolygonGeometry): MultiPolygonGeometry {
-    if (input.length === 0) return [];
-    let result: MultiPolygonGeometry = normalizeMultiPolygon([input[0]]);
-    for (let index = 1; index < input.length; index += 1) {
-      result = executeBoolean(ClipType.Xor, result, [input[index]]);
+    const normalized = safeNormalizedPolygons(input);
+    if (normalized.length === 0) return [];
+    let result: MultiPolygonGeometry = [normalized[0]];
+    for (let index = 1; index < normalized.length; index += 1) {
+      result = executeBoolean(ClipType.Xor, result, [normalized[index]]);
     }
     return result;
   }

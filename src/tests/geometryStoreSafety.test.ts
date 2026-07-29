@@ -70,6 +70,31 @@ describe('mixed polygon and linear selections', () => {
     expect(useAppStore.getState().project.entities).toHaveLength(2);
   });
 
+  it('keeps every operand when Clipper2 rejects an unsafe coordinate range', () => {
+    const subject = createPolygonEntity({
+      outer: [
+        { x: 0, y: 0 },
+        { x: 1e300, y: 0 },
+        { x: 1e300, y: 1e300 },
+        { x: 0, y: 1e300 },
+      ],
+      holes: [],
+    });
+    const cutter = rectangle(0, 10);
+    seed([subject, cutter], [subject.id, cutter.id]);
+    const before = useAppStore.getState().project.entities;
+
+    expect(() => {
+      useAppStore.getState().differenceSelected(subject.id, [cutter.id]);
+    }).not.toThrow();
+
+    expect(useAppStore.getState().project.entities).toBe(before);
+    expect(useAppStore.getState().history.past).toEqual([]);
+    expect(useAppStore.getState().ui.errorMessage).toBe(
+      'errors.geometryEngineFailed',
+    );
+  });
+
   it('preserves a selected linear entity while replacing polygons with a hull', () => {
     const first = rectangle(0, 10);
     const second = rectangle(20, 30);

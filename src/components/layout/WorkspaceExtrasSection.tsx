@@ -78,7 +78,9 @@ export function WorkspaceExtrasSection() {
   function groupSelection() {
     const group = createEntityGroup(
       unlockedEntityIds(project, selectedIds),
-      `Group ${(project.groups?.length ?? 0) + 1}`,
+      t('panel.groupDefaultName', {
+        index: (project.groups?.length ?? 0) + 1,
+      }),
     );
     if (!group) return;
     commitProject({ ...project, groups: [...(project.groups ?? []), group] });

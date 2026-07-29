@@ -107,14 +107,66 @@ export function projectConstraintPointIds(
   }
 }
 
+export function mapProjectConstraintPointIds(
+  constraint: ParametricConstraint,
+  mapPointId: (pointId: string) => string,
+): ParametricConstraint {
+  switch (constraint.kind) {
+    case 'length':
+    case 'horizontal':
+    case 'vertical':
+      return {
+        ...constraint,
+        a: mapPointId(constraint.a),
+        b: mapPointId(constraint.b),
+      };
+    case 'angle':
+      return {
+        ...constraint,
+        a: mapPointId(constraint.a),
+        vertex: mapPointId(constraint.vertex),
+        b: mapPointId(constraint.b),
+      };
+    case 'parallel':
+    case 'perpendicular':
+      return {
+        ...constraint,
+        a1: mapPointId(constraint.a1),
+        a2: mapPointId(constraint.a2),
+        b1: mapPointId(constraint.b1),
+        b2: mapPointId(constraint.b2),
+      };
+  }
+}
+
 /** Remove constraints whose entity, ring, hole, or point index no longer exists. */
 export function sanitizeProjectConstraints(
   project: Project,
   constraints: readonly ParametricConstraint[] = project.constraints ?? [],
 ): ParametricConstraint[] {
-  const validPointIds = new Set(Object.keys(projectConstraintPoints(project)));
+  if (constraints.length === 0) return [];
+  const entitiesById = new Map(
+    project.entities.map((entity) => [entity.id, entity]),
+  );
   return constraints.filter((constraint) =>
-    projectConstraintPointIds(constraint).every((id) => validPointIds.has(id)),
+    projectConstraintPointIds(constraint).every((id) => {
+      const reference = parseProjectPointKey(id);
+      if (!reference) return false;
+      const entity = entitiesById.get(reference.entityId);
+      if (!entity) return false;
+      if (reference.ring === 'linear') {
+        return (
+          'points' in entity &&
+          reference.pointIndex < entity.points.length
+        );
+      }
+      if (entity.type !== 'polygon') return false;
+      if (reference.ring === 'outer') {
+        return reference.pointIndex < entity.geometry.outer.length;
+      }
+      const hole = entity.geometry.holes[reference.holeIndex];
+      return !!hole && reference.pointIndex < hole.length;
+    }),
   );
 }
 

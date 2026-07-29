@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
+import { makeId } from '../../app/idUtils';
 import { projectDecodeFeedback } from '../../app/projectDecodeFeedback';
+import type { Project } from '../../app/projectTypes';
 import {
   exportProjectFile,
-  importProjectFileResult,
+  importProjectFileSourceResult,
 } from '../../persistence/projectFileIo';
 import { exportSvgFile } from '../../persistence/svgExport';
 import { exportAreaCsvFile, exportVertexCsvFile } from '../../persistence/csvExport';
@@ -21,12 +23,43 @@ import {
 } from '../../persistence/sectionReport';
 import {
   createUnderlayImage,
+  deleteUnderlayImageDurably,
   notifyUnderlaysChanged,
   saveUnderlayImage,
 } from '../../persistence/underlayStore';
 import { buildShareUrl } from '../../persistence/shareUrl';
-import { saveProjectToLocal } from '../../persistence/localProjectStore';
+import {
+  deleteProjectRecoverySnapshot,
+  preserveProjectRecoverySource,
+  saveProjectToLocal,
+} from '../../persistence/localProjectStore';
 import { ProjectManagerModal } from './ProjectManagerModal';
+
+const DXF_WARNING_CODES = new Set([
+  'invalid-dxf',
+  'file-read-error',
+  'input-size-limit-exceeded',
+  'group-pair-limit-exceeded',
+  'truncated-group-pair',
+  'invalid-group-code',
+  'invalid-coordinate',
+  'vertex-limit-exceeded',
+  'invalid-closed-polyline',
+  'invalid-open-polyline',
+  'invalid-line',
+  'invalid-circle',
+  'invalid-arc',
+  'unsupported-unit',
+  'invalid-block',
+  'duplicate-block',
+  'entity-limit-exceeded',
+  'unsupported-entity',
+  'invalid-insert',
+  'undefined-block',
+  'cyclic-block',
+  'missing-eof',
+  'warning-limit-exceeded',
+]);
 
 export function Header() {
   const { t } = useTranslation();
@@ -52,6 +85,7 @@ export function Header() {
   const dxfFileInput = useRef<HTMLInputElement>(null);
   const geoJsonFileInput = useRef<HTMLInputElement>(null);
   const underlayFileInput = useRef<HTMLInputElement>(null);
+  const importGenerationRef = useRef(0);
   const projectManagerOpen = useAppStore((s) => s.ui.projectManagerOpen);
   const setProjectManagerOpen = useAppStore((s) => s.setProjectManagerOpen);
   const [busyAction, setBusyAction] = useState<'png' | 'share' | null>(null);
@@ -68,6 +102,23 @@ export function Header() {
   function reportSuccess(message: string) {
     setErrorMessage(null);
     setStatusMessage(message);
+  }
+
+  function beginImport(): number {
+    importGenerationRef.current += 1;
+    return importGenerationRef.current;
+  }
+
+  function importTargetStillCurrent(
+    targetProject: Project,
+    generation: number,
+  ): boolean {
+    // A newer import owns the UI and its result, even when both source files
+    // carry the same project ID.
+    if (generation !== importGenerationRef.current) return false;
+    if (useAppStore.getState().project === targetProject) return true;
+    reportError('errors.projectChangedDuringImport');
+    return false;
   }
 
   function saveCurrentProject(): boolean {
@@ -90,89 +141,162 @@ export function Header() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const result = await importProjectFileResult(file);
+    const targetProject = project;
+    const generation = beginImport();
+    const source = await importProjectFileSourceResult(file);
+    if (!importTargetStillCurrent(targetProject, generation)) return;
+    const result = source.decodeResult;
     const feedback = projectDecodeFeedback(result, t);
     if (!result.ok) {
       reportError(feedback ?? 'errors.importInvalid');
       return;
     }
     if (!saveCurrentProject()) return;
-    loadProject(result.project);
+    const now = new Date().toISOString();
+    const independentProject = {
+      ...result.project,
+      id: makeId('project'),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const stagedRecovery = result.sourceWasNormalized;
+    if (
+      stagedRecovery &&
+      !preserveProjectRecoverySource(
+        independentProject.id,
+        source.sourceJson,
+        result.project.id,
+      )
+    ) {
+      reportError('errors.saveFailed');
+      return;
+    }
+    if (!saveProjectToLocal(independentProject)) {
+      if (stagedRecovery) {
+        deleteProjectRecoverySnapshot(independentProject.id);
+      }
+      reportError('errors.saveFailed');
+      return;
+    }
+    loadProject(independentProject);
     if (feedback) reportError(feedback);
-    else reportSuccess(t('status.jsonImported', { name: result.project.name }));
+    else {
+      reportSuccess(t('status.jsonImported', { name: independentProject.name }));
+    }
   }
 
   async function onSvgImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const targetProject = project;
+    const generation = beginImport();
     const result = await importSvgFile(file, {
-      circleSegments: project.settings.circleSegments,
+      circleSegments: targetProject.settings.circleSegments,
     });
+    if (!importTargetStillCurrent(targetProject, generation)) return;
+    setErrorMessage(null);
     const imported = importPolygonGeometries(result.polygons).length;
+    const importError = useAppStore.getState().ui.errorMessage;
     if (imported === 0) {
-      reportError('errors.svgImportInvalid');
+      reportError(importError ?? 'errors.svgImportInvalid');
       return;
     }
-    reportSuccess(t('status.svgImported', {
+    setStatusMessage(t('status.svgImported', {
       count: imported,
       warnings: result.warnings.length,
     }));
+    if (!importError) setErrorMessage(null);
   }
 
   async function onDxfImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const targetProject = project;
+    const generation = beginImport();
     const result = await importDxfFile(file, {
-      curveSegments: project.settings.circleSegments,
-      targetUnit: project.unit,
+      curveSegments: targetProject.settings.circleSegments,
+      targetUnit: targetProject.unit,
     });
+    if (!importTargetStillCurrent(targetProject, generation)) return;
+    setErrorMessage(null);
     const imported = importDrawingGeometries(
       result.polygons,
       result.polylines,
     ).length;
+    const importError = useAppStore.getState().ui.errorMessage;
     if (imported === 0) {
-      reportError('errors.dxfImportInvalid');
+      reportError(importError ?? 'errors.dxfImportInvalid');
       return;
     }
-    reportSuccess(t('status.dxfImported', {
+    const warningTypes = result.warnings.slice(0, 5).map((warning) => {
+      const [code, ...detailParts] = warning.split(':');
+      const translationCode = DXF_WARNING_CODES.has(code) ? code : 'other';
+      return t(`dxfWarnings.${translationCode}`, {
+        detail: detailParts.join(':'),
+      });
+    }).join(', ');
+    const message = t('status.dxfImported', {
       count: imported,
       warnings: result.warnings.length,
-    }));
+      warningTypes: warningTypes
+        ? `: ${warningTypes}${result.warnings.length > 5 ? ', …' : ''}`
+        : '',
+    });
+    setStatusMessage(message);
+    if (!importError) setErrorMessage(null);
   }
 
   async function onGeoJsonImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const targetProject = project;
+    const generation = beginImport();
     const result = await importGeoJsonFile(file);
+    if (!importTargetStillCurrent(targetProject, generation)) return;
+    setErrorMessage(null);
     const count = importPolygonGeometries(result.polygons).length;
+    const importError = useAppStore.getState().ui.errorMessage;
     if (count === 0) {
-      reportError('errors.geoJsonImportInvalid');
+      reportError(importError ?? 'errors.geoJsonImportInvalid');
       return;
     }
-    reportSuccess(t('status.geoJsonImported', {
+    setStatusMessage(t('status.geoJsonImported', {
       count,
       warnings: result.warnings.length,
     }));
+    if (!importError) setErrorMessage(null);
   }
 
   async function onUnderlayImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const image = await createUnderlayImage(project.id, file, file.name);
+    const targetProject = project;
+    const generation = beginImport();
+    const image = await createUnderlayImage(targetProject.id, file, file.name);
+    if (!importTargetStillCurrent(targetProject, generation)) return;
     if (!image) {
       reportError('errors.underlayImportInvalid');
       return;
     }
     try {
       await saveUnderlayImage(image);
-      notifyUnderlaysChanged(project.id);
+      if (!importTargetStillCurrent(targetProject, generation)) {
+        const removed = await deleteUnderlayImageDurably(image.id);
+        if (!removed && generation === importGenerationRef.current) {
+          reportError('errors.underlayRollbackFailed');
+        }
+        return;
+      }
+      notifyUnderlaysChanged(targetProject.id);
       reportSuccess(t('status.underlayImported', { name: image.name }));
     } catch {
-      reportError('errors.underlayImportInvalid');
+      if (importTargetStillCurrent(targetProject, generation)) {
+        reportError('errors.underlayImportInvalid');
+      }
     }
   }
 

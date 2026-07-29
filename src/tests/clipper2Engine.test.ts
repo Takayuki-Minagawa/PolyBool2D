@@ -3,7 +3,9 @@ import {
   Clipper2Engine,
   offsetWithClipper2,
 } from '../geometry/clipper2Engine';
+import { bufferPolygonResult } from '../geometry/offset';
 import { PolygonClippingEngine } from '../geometry/polygonClippingEngine';
+import { repairPolygonResult } from '../geometry/repair';
 import type { PolygonGeometry } from '../geometry/types';
 
 const square = (
@@ -137,5 +139,92 @@ describe('Clipper2Engine', () => {
 
     expect(result.length).toBeGreaterThan(0);
     expect(engine.area(result)).toBeCloseTo(50, 8);
+  });
+
+  it('ignores non-finite union members without throwing away valid input', () => {
+    const engine = new Clipper2Engine();
+    const invalid: PolygonGeometry = {
+      outer: [
+        { x: Number.NaN, y: 0 },
+        { x: 10, y: 0 },
+        { x: 0, y: 10 },
+      ],
+      holes: [],
+    };
+
+    expect(() => engine.union([invalid])).not.toThrow();
+    expect(engine.union([invalid])).toEqual([]);
+    expect(engine.area(engine.union([invalid, square(0, 0, 10, 10)])))
+      .toBeCloseTo(100, 8);
+
+    const validOuterWithInvalidHole: PolygonGeometry = {
+      ...square(0, 0, 10, 10),
+      holes: [invalid.outer],
+    };
+    expect(engine.area(engine.union([validOuterWithInvalidHole])))
+      .toBeCloseTo(100, 8);
+  });
+
+  it('rejects out-of-range operands before boolean operations in either order', () => {
+    const engine = new Clipper2Engine();
+    const outsideClipperRange = square(0, 0, 1e300, 1e300);
+    const valid = square(0, 0, 10, 10);
+
+    expect(() => engine.union([outsideClipperRange])).toThrow(RangeError);
+    expect(() =>
+      engine.difference([outsideClipperRange], [valid])
+    ).toThrow(RangeError);
+    expect(() =>
+      engine.difference([valid], [outsideClipperRange])
+    ).toThrow(RangeError);
+    expect(() =>
+      engine.intersection([outsideClipperRange, valid])
+    ).toThrow(RangeError);
+    expect(() =>
+      engine.intersection([valid, outsideClipperRange])
+    ).toThrow(RangeError);
+    expect(() =>
+      engine.xor([outsideClipperRange, valid])
+    ).toThrow(RangeError);
+    expect(() =>
+      engine.xor([valid, outsideClipperRange])
+    ).toThrow(RangeError);
+  });
+
+  it('reports repair failures for coordinates outside Clipper2 range', () => {
+    const result = repairPolygonResult(square(0, 0, 1e300, 1e300));
+
+    expect(result).toMatchObject({
+      ok: false,
+      value: [],
+      reason: 'engine-error',
+    });
+    if (!result.ok) {
+      expect(result.message).toContain(
+        'Clipper2 coordinates exceed the supported range',
+      );
+    }
+  });
+
+  it('reports buffer failures when expansion exceeds Clipper2 range', () => {
+    const nearLimit = square(-8e23, -8e23, 8e23, 8e23);
+    const result = bufferPolygonResult(nearLimit, 8e23);
+
+    expect(() => offsetWithClipper2([nearLimit], 8e23)).toThrow(RangeError);
+    expect(result).toMatchObject({
+      ok: false,
+      value: [],
+      reason: 'engine-error',
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'miter-offset-fallback' }),
+      ]),
+    );
+    if (!result.ok) {
+      expect(result.message).toContain(
+        'Clipper2 coordinates exceed the supported range',
+      );
+    }
   });
 });

@@ -30,8 +30,9 @@ export function StatusBar() {
       <span>
         {cursor
           ? `X: ${cursor.x.toFixed(coordinatePrecision)}, Y: ${cursor.y.toFixed(coordinatePrecision)}`
-          : status ?? ''}
+          : ''}
       </span>
+      {status && <span>{status}</span>}
       <span>
         {t('status.snap')}: {snap ? 'ON' : 'OFF'}
       </span>

@@ -15,10 +15,17 @@ import { offsetPolygon } from '../../geometry/offset';
 import { repairPolygon } from '../../geometry/repair';
 import { chamferPolygon, filletPolygon } from '../../geometry/corner';
 import { minimumAreaBoundingRectangle } from '../../geometry/minimumBoundingRectangle';
+import type { ParametricConstraint } from '../../geometry/constraints';
 import type { Point, PolygonGeometry } from '../../geometry/types';
 import { boundsForEntities } from '../transform';
 import { createPolygonEntity } from '../projectFactory';
-import type { PolygonEntity } from '../projectTypes';
+import {
+  mapProjectConstraintPointIds,
+  parseProjectPointKey,
+  projectPointKey,
+  sanitizeProjectConstraints,
+} from '../projectConstraints';
+import type { PolygonEntity, VertexRef } from '../projectTypes';
 import {
   alignOffset,
   collectPolygonPoints,
@@ -32,6 +39,29 @@ import {
   touchProject,
 } from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
+
+function reindexConstraintsAfterVertexInsert(
+  constraints: readonly ParametricConstraint[],
+  vertex: VertexRef,
+  insertionIndex: number,
+): ParametricConstraint[] {
+  return constraints.map((constraint) =>
+    mapProjectConstraintPointIds(constraint, (pointId) => {
+      const reference = parseProjectPointKey(pointId);
+      if (!reference || reference.entityId !== vertex.entityId) return pointId;
+      const sameRing =
+        vertex.ringType === 'outer'
+          ? reference.ring === 'outer'
+          : reference.ring === 'hole' &&
+            reference.holeIndex === vertex.holeIndex;
+      if (!sameRing || reference.pointIndex < insertionIndex) return pointId;
+      return projectPointKey({
+        ...reference,
+        pointIndex: reference.pointIndex + 1,
+      });
+    }),
+  );
+}
 
 export function createGeometryActions(set: AppSet, get: AppGet): Pick<
   AppState,
@@ -70,7 +100,13 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       get().setErrorMessage('errors.booleanNeedsTwo');
       return;
     }
-    const result = getEngine()[op](polys.map((p) => p.geometry));
+    let result: PolygonGeometry[];
+    try {
+      result = getEngine()[op](polys.map((p) => p.geometry));
+    } catch {
+      get().setErrorMessage('errors.geometryEngineFailed');
+      return;
+    }
     if (result.length === 0) {
       get().setErrorMessage('errors.emptyResult');
       return;
@@ -151,10 +187,16 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         get().setErrorMessage('errors.cutterNotSelected');
         return;
       }
-      const result = getEngine().difference(
-        [subject.geometry],
-        cutters.map((c) => c.geometry),
-      );
+      let result: PolygonGeometry[];
+      try {
+        result = getEngine().difference(
+          [subject.geometry],
+          cutters.map((c) => c.geometry),
+        );
+      } catch {
+        get().setErrorMessage('errors.geometryEngineFailed');
+        return;
+      }
       const newEntities = result.map((g) =>
         createPolygonEntity(g, {
           name: 'Difference',
@@ -301,12 +343,38 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
     },
 
     insertVertex: (ref, point) => {
-      const ent = getPolygon(get().project, ref.entityId);
+      const project = get().project;
+      const ent = getPolygon(project, ref.entityId);
       if (!ent) return;
+      const ring =
+        ref.ringType === 'outer'
+          ? ent.geometry.outer
+          : ent.geometry.holes[ref.holeIndex ?? -1];
+      if (!ring) return;
+      const insertionIndex =
+        Math.max(0, Math.min(ring.length - 1, ref.vertexIndex)) + 1;
+      const constraints = reindexConstraintsAfterVertexInsert(
+        project.constraints ?? [],
+        ref,
+        insertionIndex,
+      );
       const geom = editRingGeometry(ent, ref, (ring) =>
         insertVertexInRing(ring, ref.vertexIndex, point),
       );
-      if (geom && geom !== 'too-few') get().updateEntityGeometry(ref.entityId, geom);
+      if (geom && geom !== 'too-few') {
+        get().updateEntityGeometry(ref.entityId, geom);
+        if (constraints.length > 0) {
+          set((state) => ({
+            project: {
+              ...state.project,
+              constraints: sanitizeProjectConstraints(
+                state.project,
+                constraints,
+              ),
+            },
+          }));
+        }
+      }
     },
 
     deleteVertex: (ref) => {

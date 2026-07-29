@@ -1,3 +1,8 @@
+import { Blob as NodeBlob } from 'node:buffer';
+import {
+  DecompressionStream as NodeDecompressionStream,
+} from 'node:stream/web';
+import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject, createLinearEntity, createPolygonEntity } from '../app/projectFactory';
 import type { Project } from '../app/projectTypes';
@@ -6,14 +11,19 @@ import { polygonArea } from '../geometry/area';
 import { buildDxf } from '../persistence/dxfExport';
 import { calculateRasterSize, projectSvgForPng } from '../persistence/pngExport';
 import { buildSvg } from '../persistence/svgExport';
+import { serializeProject } from '../persistence/projectCodec';
 import {
   buildShareUrl,
   decodeProjectFromShareHash,
   decodeProjectFromShareHashResult,
+  decodeProjectFromShareHashSourceOutcome,
+  decodeProjectFromShareHashSourceResult,
   decodeSharedProject,
   decodeSharedProjectResult,
+  decodeSharedProjectSourceOutcome,
   encodeProjectForShare,
   encodeProjectToShareHash,
+  MAX_SHARE_HASH_LENGTH,
   MAX_SHARED_PROJECT_BYTES,
 } from '../persistence/shareUrl';
 import { importSvgString } from '../persistence/svgImport';
@@ -25,6 +35,25 @@ function projectWithHole() {
     holes: [rectangleToRing({ x: 20, y: 20 }, { x: 40, y: 40 })],
   });
   return { ...project, entities: [entity] };
+}
+
+function replaceGlobalValue(name: string, value: unknown): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    name,
+  );
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    writable: true,
+    value,
+  });
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(globalThis, name, descriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, name);
+    }
+  };
 }
 
 describe('DXF export', () => {
@@ -168,6 +197,89 @@ describe('share URL codec', () => {
     expect(await decodeProjectFromShareHash('#other=value')).toBeNull();
   });
 
+  it('classifies terminal and retryable shared-payload failures', async () => {
+    await expect(decodeSharedProjectSourceOutcome('raw.')).resolves.toEqual({
+      ok: false,
+      reason: 'malformed-payload',
+      retryable: false,
+    });
+    await expect(decodeSharedProjectSourceOutcome('raw.not+base64'))
+      .resolves.toEqual({
+        ok: false,
+        reason: 'malformed-payload',
+        retryable: false,
+      });
+    await expect(decodeSharedProjectSourceOutcome('gz.AQID'))
+      .resolves.toEqual({
+        ok: false,
+        reason: 'malformed-payload',
+        retryable: false,
+      });
+    await expect(decodeProjectFromShareHashSourceOutcome(
+      `${'#pb2d=raw.'}${'A'.repeat(MAX_SHARE_HASH_LENGTH)}`,
+    )).resolves.toEqual({
+      ok: false,
+      reason: 'payload-too-large',
+      retryable: false,
+    });
+
+    const gzipPayload = `gz.${gzipSync(
+      serializeProject(projectWithHole()),
+    ).toString('base64url')}`;
+    let restoreDecompressionStream = replaceGlobalValue(
+      'DecompressionStream',
+      undefined,
+    );
+    try {
+      await expect(decodeSharedProjectSourceOutcome(gzipPayload))
+        .resolves.toEqual({
+          ok: false,
+          reason: 'decompression-unavailable',
+          retryable: true,
+        });
+    } finally {
+      restoreDecompressionStream();
+    }
+
+    const restoreBlob = replaceGlobalValue('Blob', NodeBlob);
+    restoreDecompressionStream = replaceGlobalValue('DecompressionStream', class {
+      constructor() {
+        throw new Error('Temporary decompression failure');
+      }
+    });
+    try {
+      await expect(decodeSharedProjectSourceOutcome(gzipPayload))
+        .resolves.toEqual({
+          ok: false,
+          reason: 'decompression-failed',
+          retryable: true,
+        });
+    } finally {
+      restoreDecompressionStream();
+      restoreBlob();
+    }
+
+    const oversizedGzipPayload = `gz.${gzipSync(
+      'x'.repeat(MAX_SHARED_PROJECT_BYTES + 1),
+    ).toString('base64url')}`;
+    const restoreNativeBlob = replaceGlobalValue('Blob', NodeBlob);
+    const restoreNativeDecompressionStream = replaceGlobalValue(
+      'DecompressionStream',
+      NodeDecompressionStream,
+    );
+    try {
+      await expect(decodeSharedProjectSourceOutcome(oversizedGzipPayload))
+        .resolves.toEqual({
+          ok: false,
+          reason: 'payload-too-large',
+          retryable: false,
+        });
+    } finally {
+      restoreNativeDecompressionStream();
+      restoreNativeBlob();
+    }
+  });
+
   it('exposes recoverable project diagnostics from payloads and hashes', async () => {
     const project = createEmptyProject();
     const recoverable = {
@@ -186,6 +298,12 @@ describe('share URL codec', () => {
     const hash = `#pb2d=${payload}`;
     const hashResult = await decodeProjectFromShareHashResult(hash);
     expect(hashResult?.ok && hashResult.discardedItemCount).toBe(1);
+    const sourceResult = await decodeProjectFromShareHashSourceResult(hash);
+    expect(sourceResult?.sourceJson).toBe(serializeProject(recoverable));
+    expect(
+      sourceResult?.decodeResult.ok &&
+        sourceResult.decodeResult.discardedItemCount,
+    ).toBe(1);
   });
 
   it('rejects oversized source data even when it would compress to a short hash', async () => {

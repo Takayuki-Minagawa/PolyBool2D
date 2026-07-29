@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
+import {
+  createEmptyProject,
+  createLinearEntity,
+  createPolygonEntity,
+} from '../app/projectFactory';
 import {
   parseProjectPointKey,
   projectPointKey,
+  sanitizeProjectConstraints,
   solveProjectConstraints,
 } from '../app/projectConstraints';
 
@@ -56,5 +61,64 @@ describe('project constraints', () => {
     expect(parseProjectPointKey(projectPointKey(hole))).toEqual(hole);
     expect(parseProjectPointKey('entity|outer|')).toBeNull();
     expect(parseProjectPointKey('entity|outer|9007199254740992')).toBeNull();
+  });
+
+  it('returns immediately for an empty constraint list without scanning entities', () => {
+    const project = createEmptyProject();
+    const inaccessibleEntities = new Proxy(project.entities, {
+      get() {
+        throw new Error('entities should not be inspected');
+      },
+    });
+
+    expect(
+      sanitizeProjectConstraints(
+        { ...project, entities: inaccessibleEntities },
+        [],
+      ),
+    ).toEqual([]);
+  });
+
+  it('validates point references on polyline and arc entities directly', () => {
+    const polyline = createLinearEntity(
+      [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+      'polyline',
+    );
+    const arc = createLinearEntity(
+      [{ x: 0, y: 10 }, { x: 10, y: 10 }],
+      'arc',
+    );
+    const project = {
+      ...createEmptyProject(),
+      entities: [polyline, arc],
+    };
+    const constraint = {
+      id: 'parallel',
+      kind: 'parallel' as const,
+      a1: projectPointKey({
+        entityId: polyline.id,
+        ring: 'linear',
+        pointIndex: 0,
+      }),
+      a2: projectPointKey({
+        entityId: polyline.id,
+        ring: 'linear',
+        pointIndex: 1,
+      }),
+      b1: projectPointKey({
+        entityId: arc.id,
+        ring: 'linear',
+        pointIndex: 0,
+      }),
+      b2: projectPointKey({
+        entityId: arc.id,
+        ring: 'linear',
+        pointIndex: 1,
+      }),
+    };
+
+    expect(sanitizeProjectConstraints(project, [constraint])).toEqual([
+      constraint,
+    ]);
   });
 });
