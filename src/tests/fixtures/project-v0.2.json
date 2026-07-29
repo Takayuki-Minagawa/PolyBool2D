@@ -1,0 +1,85 @@
+{
+  "id": "fixture-project-v0.2",
+  "name": "Version 0.2 fixture",
+  "version": "0.2.0",
+  "unit": "mm",
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "updatedAt": "2025-01-02T00:00:00.000Z",
+  "settings": {
+    "gridSize": 100,
+    "snapToGrid": true,
+    "snapToVertex": true,
+    "snapToEdge": true,
+    "snapTolerancePx": 12,
+    "areaPrecision": 3,
+    "coordinatePrecision": 3,
+    "circleSegments": 64,
+    "areaDisplayUnit": "m2",
+    "angleSnapEnabled": false,
+    "angleSnapIncrementDeg": 15
+  },
+  "layers": [
+    {
+      "id": "layer-default",
+      "name": "Layer 1",
+      "visible": true,
+      "locked": false,
+      "color": "#3a8dde"
+    }
+  ],
+  "entities": [
+    {
+      "id": "fixture-v02-polygon",
+      "type": "polygon",
+      "name": "Plate with opening",
+      "layerId": "layer-default",
+      "geometry": {
+        "outer": [
+          { "x": 0, "y": 0 },
+          { "x": 100, "y": 0 },
+          { "x": 100, "y": 80 },
+          { "x": 0, "y": 80 }
+        ],
+        "holes": [
+          [
+            { "x": 20, "y": 20 },
+            { "x": 40, "y": 20 },
+            { "x": 40, "y": 40 },
+            { "x": 20, "y": 40 }
+          ]
+        ]
+      },
+      "style": {
+        "fill": "#88aadd",
+        "stroke": "#223344",
+        "strokeWidth": 1.5,
+        "opacity": 0.7
+      },
+      "locked": false,
+      "visible": true,
+      "metadata": {
+        "sourceShape": "polygon",
+        "createdByOperation": "draw"
+      }
+    },
+    {
+      "id": "fixture-v02-polyline",
+      "type": "guide-line",
+      "name": "Datum path",
+      "kind": "polyline",
+      "layerId": "layer-default",
+      "points": [
+        { "x": -10, "y": 0 },
+        { "x": 50, "y": 30 },
+        { "x": 110, "y": 0 }
+      ],
+      "style": {
+        "stroke": "#336699",
+        "strokeWidth": 1.25,
+        "opacity": 0.9
+      },
+      "locked": false,
+      "visible": true
+    }
+  ]
+}

@@ -17,7 +17,7 @@ type Props = {
 
 const GUIDE_EXTENT = 100_000;
 
-export function LinearShape({
+export const LinearShape = memo(function LinearShape({
   points,
   view,
   color,
@@ -68,4 +68,5 @@ export function LinearShape({
       {...common}
     />
   );
-}
+});
+import { memo } from 'react';

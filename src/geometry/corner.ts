@@ -1,6 +1,16 @@
 import { signedRingArea } from './area';
 import { normalizePolygon, normalizeRing } from './normalize';
-import { clamp, cross, distance, dot, pointsAlmostEqual } from './numeric';
+import {
+  clamp,
+  CORNER_ANGLE_TOLERANCE,
+  cross,
+  DIRECTION_TOLERANCE,
+  distance,
+  dot,
+  isFinitePoint,
+  isFiniteRing,
+  pointsAlmostEqual,
+} from './numeric';
 import type { Point, PolygonGeometry, Ring } from './types';
 import { EPS } from './types';
 
@@ -39,12 +49,6 @@ function edgeConsumptionLimit(edgeLength: number, adjacentSelected: boolean): nu
   return edgeLength * (adjacentSelected ? EDGE_FRACTION_LIMIT : SINGLE_CORNER_EDGE_LIMIT);
 }
 
-function finiteRing(ring: Ring): boolean {
-  return (
-    ring.length >= 3 &&
-    ring.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-  );
-}
 function selectedVertices(
   length: number,
   selection: RingVertexSelection | undefined,
@@ -62,6 +66,59 @@ function selectedVertices(
 function appendPoint(points: Ring, point: Point): void {
   const last = points[points.length - 1];
   if (!last || !pointsAlmostEqual(last, point)) points.push(point);
+}
+
+type SelectedCorner = {
+  vertex: Point;
+  previous: Point;
+  next: Point;
+  previousLength: number;
+  nextLength: number;
+  previousSelected: boolean;
+  nextSelected: boolean;
+};
+
+/**
+ * Shared corner-edit skeleton. Invalid rings fail once, while unselected and
+ * locally degenerate corners pass through unchanged for both edit strategies.
+ */
+function mapSelectedCorners(
+  ring: Ring,
+  selection: RingVertexSelection | undefined,
+  mapper: (corner: SelectedCorner) => readonly Point[] | null,
+): Ring | null {
+  if (ring.length < 3 || !isFiniteRing(ring)) return null;
+  const selected = selectedVertices(ring.length, selection);
+  const result: Ring = [];
+  for (let index = 0; index < ring.length; index++) {
+    const vertex = ring[index];
+    if (!selected.has(index)) {
+      appendPoint(result, vertex);
+      continue;
+    }
+    const previous = ring[(index - 1 + ring.length) % ring.length];
+    const next = ring[(index + 1) % ring.length];
+    const previousLength = distance(vertex, previous);
+    const nextLength = distance(vertex, next);
+    if (!(previousLength > EPS) || !(nextLength > EPS)) {
+      appendPoint(result, vertex);
+      continue;
+    }
+    const mapped = mapper({
+      vertex,
+      previous,
+      next,
+      previousLength,
+      nextLength,
+      previousSelected: selected.has(
+        (index - 1 + ring.length) % ring.length,
+      ),
+      nextSelected: selected.has((index + 1) % ring.length),
+    });
+    if (mapped === null || !mapped.every(isFinitePoint)) return null;
+    for (const point of mapped) appendPoint(result, point);
+  }
+  return normalizeRing(result);
 }
 
 function selectionForOuter(
@@ -83,52 +140,37 @@ export function chamferRing(
   distanceAlongEdge: number,
   options: RingCornerOptions = {},
 ): Ring | null {
-  if (!finiteRing(ring) || !Number.isFinite(distanceAlongEdge)) return null;
+  if (!Number.isFinite(distanceAlongEdge)) return null;
   if (distanceAlongEdge < 0) return null;
   if (distanceAlongEdge === 0) return normalizeRing([...ring]);
-
-  const selected = selectedVertices(ring.length, options.vertices);
-  const result: Ring = [];
-  for (let index = 0; index < ring.length; index++) {
-    const vertex = ring[index];
-    if (!selected.has(index)) {
-      appendPoint(result, vertex);
-      continue;
-    }
-
-    const previous = ring[(index - 1 + ring.length) % ring.length];
-    const next = ring[(index + 1) % ring.length];
-    const previousLength = distance(vertex, previous);
-    const nextLength = distance(vertex, next);
-    if (!(previousLength > EPS) || !(nextLength > EPS)) {
-      appendPoint(result, vertex);
-      continue;
-    }
-
+  return mapSelectedCorners(ring, options.vertices, ({
+    vertex,
+    previous,
+    next,
+    previousLength,
+    nextLength,
+    previousSelected,
+    nextSelected,
+  }) => {
     // Split an edge only when both of its endpoint corners are edited. A
     // single selected corner may consume almost the full adjacent edge.
     const cut = Math.min(
       distanceAlongEdge,
-      edgeConsumptionLimit(
-        previousLength,
-        selected.has((index - 1 + ring.length) % ring.length),
-      ),
-      edgeConsumptionLimit(nextLength, selected.has((index + 1) % ring.length)),
+      edgeConsumptionLimit(previousLength, previousSelected),
+      edgeConsumptionLimit(nextLength, nextSelected),
     );
-    if (!(cut > 0)) {
-      appendPoint(result, vertex);
-      continue;
-    }
-    appendPoint(result, {
-      x: vertex.x + ((previous.x - vertex.x) * cut) / previousLength,
-      y: vertex.y + ((previous.y - vertex.y) * cut) / previousLength,
-    });
-    appendPoint(result, {
-      x: vertex.x + ((next.x - vertex.x) * cut) / nextLength,
-      y: vertex.y + ((next.y - vertex.y) * cut) / nextLength,
-    });
-  }
-  return normalizeRing(result);
+    if (!(cut > 0)) return [vertex];
+    return [
+      {
+        x: vertex.x + ((previous.x - vertex.x) * cut) / previousLength,
+        y: vertex.y + ((previous.y - vertex.y) * cut) / previousLength,
+      },
+      {
+        x: vertex.x + ((next.x - vertex.x) * cut) / nextLength,
+        y: vertex.y + ((next.y - vertex.y) * cut) / nextLength,
+      },
+    ];
+  });
 }
 
 function segmentCount(value: number | undefined): number {
@@ -149,32 +191,28 @@ export function filletRing(
   radius: number,
   options: FilletOptions = {},
 ): Ring | null {
-  if (!finiteRing(ring) || !Number.isFinite(radius)) return null;
+  if (
+    ring.length < 3 ||
+    !isFiniteRing(ring) ||
+    !Number.isFinite(radius)
+  ) {
+    return null;
+  }
   if (radius < 0) return null;
   if (radius === 0) return normalizeRing([...ring]);
   const winding = Math.sign(signedRingArea(ring));
   if (winding === 0) return null;
 
-  const selected = selectedVertices(ring.length, options.vertices);
   const perQuarter = segmentCount(options.segmentsPerQuarter);
-  const result: Ring = [];
-
-  for (let index = 0; index < ring.length; index++) {
-    const vertex = ring[index];
-    if (!selected.has(index)) {
-      appendPoint(result, vertex);
-      continue;
-    }
-
-    const previous = ring[(index - 1 + ring.length) % ring.length];
-    const next = ring[(index + 1) % ring.length];
-    const previousLength = distance(vertex, previous);
-    const nextLength = distance(vertex, next);
-    if (!(previousLength > EPS) || !(nextLength > EPS)) {
-      appendPoint(result, vertex);
-      continue;
-    }
-
+  return mapSelectedCorners(ring, options.vertices, ({
+    vertex,
+    previous,
+    next,
+    previousLength,
+    nextLength,
+    previousSelected,
+    nextSelected,
+  }) => {
     const previousUnit = {
       x: (previous.x - vertex.x) / previousLength,
       y: (previous.y - vertex.y) / previousLength,
@@ -201,30 +239,25 @@ export function filletRing(
     const tangentFactor = Math.tan(angle / 2);
     const sineHalf = Math.sin(angle / 2);
     if (
-      Math.abs(turn) <= 1e-12 ||
-      !(angle > 1e-8) ||
-      !(Math.PI - angle > 1e-8) ||
+      Math.abs(turn) <= DIRECTION_TOLERANCE ||
+      !(angle > CORNER_ANGLE_TOLERANCE) ||
+      !(Math.PI - angle > CORNER_ANGLE_TOLERANCE) ||
       !(bisectorLength > EPS) ||
       !(tangentFactor > 0) ||
       !Number.isFinite(tangentFactor) ||
       !(sineHalf > 0)
     ) {
-      appendPoint(result, vertex);
-      continue;
+      return [vertex];
     }
 
     const requestedTangent = radius / tangentFactor;
     const tangent = Math.min(
       requestedTangent,
-      edgeConsumptionLimit(
-        previousLength,
-        selected.has((index - 1 + ring.length) % ring.length),
-      ),
-      edgeConsumptionLimit(nextLength, selected.has((index + 1) % ring.length)),
+      edgeConsumptionLimit(previousLength, previousSelected),
+      edgeConsumptionLimit(nextLength, nextSelected),
     );
     if (!(tangent > 0) || !Number.isFinite(tangent)) {
-      appendPoint(result, vertex);
-      continue;
+      return [vertex];
     }
 
     const effectiveRadius = tangent * tangentFactor;
@@ -241,9 +274,7 @@ export function filletRing(
       x: vertex.x + nextUnit.x * tangent,
       y: vertex.y + nextUnit.y * tangent,
     };
-    if (![center, start, end].every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) {
-      return null;
-    }
+    if (![center, start, end].every(isFinitePoint)) return null;
 
     // The angle between the two edge rays is supplementary to the circular
     // arc's central angle. previousUnit x nextUnit has the opposite sign to
@@ -256,20 +287,20 @@ export function filletRing(
       Math.ceil((Math.abs(sweep) / (Math.PI / 2)) * perQuarter),
     );
     const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+    const points: Ring = [];
     for (let step = 0; step <= steps; step++) {
       if (step === steps) {
-        appendPoint(result, end);
+        points.push(end);
       } else {
         const theta = startAngle + (sweep * step) / steps;
-        appendPoint(result, {
+        points.push({
           x: center.x + Math.cos(theta) * effectiveRadius,
           y: center.y + Math.sin(theta) * effectiveRadius,
         });
       }
     }
-  }
-
-  return normalizeRing(result);
+    return points;
+  });
 }
 
 export function chamferPolygon(

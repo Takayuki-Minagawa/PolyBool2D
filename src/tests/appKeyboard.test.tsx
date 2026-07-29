@@ -65,6 +65,21 @@ function press(key: string, modifiers: { metaKey?: boolean; ctrlKey?: boolean } 
 }
 
 describe('App keyboard shortcuts', () => {
+  it('keeps the global keydown listener stable across project renders', () => {
+    const addListener = vi.spyOn(window, 'addEventListener');
+
+    act(() => {
+      useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 10, y: 10 });
+      useAppStore.getState().resetProject();
+    });
+
+    expect(
+      addListener.mock.calls.filter(([type]) => type === 'keydown'),
+    ).toHaveLength(0);
+  });
+
   it('ignores command-modified tool and snap shortcuts', () => {
     press('c', { metaKey: true });
     expect(useAppStore.getState().activeTool).toBe('select');

@@ -1,17 +1,26 @@
-import { defaultEngine } from '../../geometry/geometryEngine';
+import { getEngine } from '../../geometry/geometryEngine';
 import { circleToRing, rectangleToRing } from '../../geometry/circle';
 import { translatePolygon } from '../../geometry/translate';
 import type { PolygonGeometry } from '../../geometry/types';
-import { createPolygonEntity } from '../projectFactory';
+import { createLinearEntity, createPolygonEntity } from '../projectFactory';
 import { copyEntities, pasteEntities } from '../clipboard';
-import { isEntityEffectivelyLocked } from '../layers';
-import type { Entity, ProjectSettings, Unit } from '../projectTypes';
+import {
+  isEntityEffectivelyLocked,
+  unlockedEntityIds,
+} from '../layers';
+import type {
+  Entity,
+  PolygonEntity,
+  ProjectSettings,
+  Unit,
+} from '../projectTypes';
 import {
   applyTransientGeometryUpdates,
   DUPLICATE_OFFSET_FACTOR,
   isPolygon,
+  resolveDrawingLayer,
   touchProject,
-  touchProjectSettings,
+  touchProjectUpdatedAt,
 } from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
 
@@ -19,11 +28,11 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
   AppState,
   | 'addPolygonFromOuter'
   | 'importPolygonGeometries'
+  | 'importDrawingGeometries'
   | 'addRectangle'
   | 'addCircle'
   | 'updateEntityGeometry'
   | 'updateEntityGeometryTransient'
-  | 'updateEntitiesGeometryTransient'
   | 'updateEntitiesTransient'
   | 'removeEntities'
   | 'duplicateSelected'
@@ -31,72 +40,124 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
   | 'updateSettings'
   | 'updateProjectUnit'
 > {
+  function updateEntitiesGeometryTransient(
+    updates: Map<string, PolygonGeometry>,
+  ): void {
+    set((state) => ({
+      project: applyTransientGeometryUpdates(state.project, updates),
+    }));
+  }
+
+  function preparePolygonEntities(
+    geometries: PolygonGeometry[],
+    options: (geometry: PolygonGeometry) => {
+      metadata?: PolygonEntity['metadata'];
+      name?: string;
+    },
+  ): { entities: PolygonEntity[]; errorMessage: string | null } {
+    const state = get();
+    const layer = resolveDrawingLayer(state.project, state.ui.activeLayerId);
+    if (!layer) {
+      return { entities: [], errorMessage: 'errors.noDrawableLayer' };
+    }
+    const entities: PolygonEntity[] = [];
+    let errorMessage: string | null = null;
+    for (const geometry of geometries) {
+      const validation = getEngine().validate([geometry]);
+      if (!validation.valid) {
+        errorMessage ??= `errors.validation.${validation.issues[0]}`;
+        continue;
+      }
+      const normalized = getEngine().normalize([geometry]);
+      if (normalized.length === 0) {
+        errorMessage ??= 'errors.invalidPolygon';
+        continue;
+      }
+      entities.push(...normalized.map((item) =>
+        createPolygonEntity(item, {
+          ...options(item),
+          layerId: layer.id,
+        }),
+      ));
+    }
+    return { entities, errorMessage };
+  }
+
+  function commitAddedEntities(entities: Entity[]): void {
+    if (entities.length === 0) return;
+    get().pushHistory();
+    set((state) => ({
+      project: touchProject(state.project, [
+        ...state.project.entities,
+        ...entities,
+      ]),
+      selectedEntityIds: entities.map((entity) => entity.id),
+    }));
+    for (const entity of entities) get().validateEntity(entity.id);
+  }
+
   return {
     addPolygonFromOuter: (outer, metadata) => {
-      const validation = defaultEngine.validate([{ outer, holes: [] }]);
-      if (!validation.valid) {
-        get().setErrorMessage(`errors.validation.${validation.issues[0]}`);
-        return null;
-      }
-      const ring = defaultEngine.normalize([{ outer, holes: [] }]);
-      if (ring.length === 0) {
-        get().setErrorMessage('errors.invalidPolygon');
-        return null;
-      }
-      const state = get();
-      const layer =
-        state.project.layers.find(
-          (layer) =>
-            layer.id === state.ui.activeLayerId && layer.visible && !layer.locked,
-        ) ?? state.project.layers.find((layer) => layer.visible && !layer.locked);
-      if (!layer) {
-        get().setErrorMessage('errors.noDrawableLayer');
-        return null;
-      }
-      get().pushHistory();
-      const layerId = layer.id;
-      const entity = createPolygonEntity(ring[0], { metadata, layerId });
-      set((s) => ({
-        project: touchProject(s.project, [...s.project.entities, entity]),
-        selectedEntityIds: [entity.id],
-      }));
-      get().validateEntity(entity.id);
+      const prepared = preparePolygonEntities(
+        [{ outer, holes: [] }],
+        () => ({ metadata }),
+      );
+      if (prepared.errorMessage) get().setErrorMessage(prepared.errorMessage);
+      const [entity] = prepared.entities;
+      if (!entity) return null;
+      commitAddedEntities([entity]);
       return entity;
     },
 
     importPolygonGeometries: (geometries) => {
       if (geometries.length === 0) return [];
-      const validation = defaultEngine.validate(geometries);
-      if (!validation.valid) {
-        get().setErrorMessage(`errors.validation.${validation.issues[0]}`);
-        return [];
-      }
-      const normalized = defaultEngine.normalize(geometries);
-      if (normalized.length === 0) {
-        get().setErrorMessage('errors.invalidPolygon');
-        return [];
-      }
-      const state = get();
-      const layer =
-        state.project.layers.find(
-          (candidate) =>
-            candidate.id === state.ui.activeLayerId && candidate.visible && !candidate.locked,
-        ) ?? state.project.layers.find((candidate) => candidate.visible && !candidate.locked);
-      if (!layer) {
-        get().setErrorMessage('errors.noDrawableLayer');
-        return [];
-      }
-      const entities = normalized.map((geometry) =>
-        createPolygonEntity(geometry, {
-          layerId: layer.id,
+      const prepared = preparePolygonEntities(geometries, () => ({
           metadata: { sourceShape: 'svg-import', createdByOperation: 'import' },
-        }),
-      );
-      get().pushHistory();
-      set((current) => ({
-        project: touchProject(current.project, [...current.project.entities, ...entities]),
-        selectedEntityIds: entities.map((entity) => entity.id),
       }));
+      commitAddedEntities(prepared.entities);
+      if (prepared.errorMessage) get().setErrorMessage(prepared.errorMessage);
+      return prepared.entities;
+    },
+
+    importDrawingGeometries: (geometries, linears) => {
+      const prepared = geometries.length > 0
+        ? preparePolygonEntities(geometries, () => ({
+            metadata: { sourceShape: 'polygon', createdByOperation: 'import' },
+          }))
+        : { entities: [], errorMessage: null };
+      const state = get();
+      const layer = resolveDrawingLayer(state.project, state.ui.activeLayerId);
+      if (!layer && linears.length > 0) {
+        state.setErrorMessage('errors.noDrawableLayer');
+        commitAddedEntities(prepared.entities);
+        return prepared.entities;
+      }
+      let invalidLinearCount = 0;
+      const linearEntities = layer
+        ? linears.flatMap((item) => {
+            const valid =
+              item.points.length >= 2 &&
+              item.points.every(
+                (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+              ) &&
+              item.points.some(
+                (point) =>
+                  Math.hypot(
+                    point.x - item.points[0].x,
+                    point.y - item.points[0].y,
+                  ) > 1e-9,
+              );
+            if (!valid) invalidLinearCount += 1;
+            return valid
+              ? [createLinearEntity(item.points, item.kind, { layerId: layer.id })]
+              : [];
+          })
+        : [];
+      const entities: Entity[] = [...prepared.entities, ...linearEntities];
+      commitAddedEntities(entities);
+      const importError = prepared.errorMessage ??
+        (invalidLinearCount > 0 ? 'errors.invalidImportedLine' : null);
+      if (importError) get().setErrorMessage(importError);
       return entities;
     },
 
@@ -127,6 +188,14 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
     },
 
     updateEntityGeometry: (id, geom) => {
+      const current = get();
+      const target = current.project.entities.find(
+        (entity) => entity.id === id && isPolygon(entity),
+      );
+      if (
+        !target ||
+        isEntityEffectivelyLocked(current.project, target)
+      ) return;
       get().pushHistory();
       set((s) => ({
         project: touchProject(
@@ -140,11 +209,10 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
     },
 
     updateEntityGeometryTransient: (id, geom) => {
-      get().updateEntitiesGeometryTransient(new Map([[id, geom]]));
-    },
-
-    updateEntitiesGeometryTransient: (updates: Map<string, PolygonGeometry>) => {
-      set((s) => ({ project: applyTransientGeometryUpdates(s.project, updates) }));
+      const state = get();
+      const entity = state.project.entities.find((item) => item.id === id);
+      if (!entity || isEntityEffectivelyLocked(state.project, entity)) return;
+      updateEntitiesGeometryTransient(new Map([[id, geom]]));
     },
 
     updateEntitiesTransient: (updates) => {
@@ -152,33 +220,41 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       set((state) => ({
         project: touchProject(
           state.project,
-          state.project.entities.map((entity) => updates.get(entity.id) ?? entity),
+          state.project.entities.map((entity) =>
+            isEntityEffectivelyLocked(state.project, entity)
+              ? entity
+              : updates.get(entity.id) ?? entity,
+          ),
         ),
       }));
     },
 
     removeEntities: (ids) => {
       if (ids.length === 0) return;
-      const remove = new Set(ids);
+      const remove = new Set(unlockedEntityIds(get().project, ids));
+      if (remove.size === 0) return;
       get().pushHistory();
-      set((s) => ({
-        project: touchProject(
+      set((s) => {
+        const project = touchProject(
           s.project,
           s.project.entities.filter((e) => !remove.has(e.id)),
-        ),
-        selectedEntityIds: s.selectedEntityIds.filter((id) => !remove.has(id)),
-        ui: {
-          ...s.ui,
-          invalidEntityIds: s.ui.invalidEntityIds.filter((id) => !remove.has(id)),
-        },
-      }));
+        );
+        return {
+          project,
+          selectedEntityIds: s.selectedEntityIds.filter((id) => !remove.has(id)),
+          ui: {
+            ...s.ui,
+            invalidEntityIds: s.ui.invalidEntityIds.filter((id) => !remove.has(id)),
+          },
+        };
+      });
     },
 
     duplicateSelected: () => {
       const { project, selectedEntityIds } = get();
-      const selected = new Set(selectedEntityIds);
+      const selected = new Set(unlockedEntityIds(project, selectedEntityIds));
       const originals = project.entities.filter(
-        (entity) => selected.has(entity.id) && !isEntityEffectivelyLocked(project, entity),
+        (entity) => selected.has(entity.id),
       );
       if (originals.length === 0) return;
       const offset = project.settings.gridSize * DUPLICATE_OFFSET_FACTOR;
@@ -192,7 +268,8 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
 
     translateEntities: (ids, dx, dy, recordHistory = true) => {
       if (ids.length === 0 || (dx === 0 && dy === 0)) return;
-      const wanted = new Set(ids);
+      const wanted = new Set(unlockedEntityIds(get().project, ids));
+      if (wanted.size === 0) return;
       if (recordHistory) get().pushHistory();
       set((s) => ({
         project: touchProject(
@@ -220,7 +297,7 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       if (!changed) return;
       get().pushHistory();
       set((s) => ({
-        project: touchProjectSettings({
+        project: touchProjectUpdatedAt({
           ...s.project,
           settings: { ...s.project.settings, ...partial },
         }),
@@ -231,7 +308,7 @@ export function createEntityActions(set: AppSet, get: AppGet): Pick<
       if (get().project.unit === unit) return;
       get().pushHistory();
       set((s) => ({
-        project: touchProjectSettings({ ...s.project, unit }),
+        project: touchProjectUpdatedAt({ ...s.project, unit }),
       }));
     },
   };

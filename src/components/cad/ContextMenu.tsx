@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useGlobalShortcutHandler } from '../../app/globalShortcuts';
 
 export type ContextMenuItem = {
   id: string;
@@ -21,39 +22,50 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
   const left = typeof window === 'undefined' ? x : Math.max(4, Math.min(x, window.innerWidth - 210));
   const top = typeof window === 'undefined' ? y : Math.max(4, Math.min(y, window.innerHeight - 300));
 
-  useEffect(() => {
-    const close = () => onClose();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      const buttons = [
-        ...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []),
-      ];
-      if (buttons.length === 0) return;
-      const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      let nextIndex: number | null = null;
-      if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % buttons.length;
-      if (event.key === 'ArrowUp') {
-        nextIndex = currentIndex <= 0 ? buttons.length - 1 : currentIndex - 1;
-      }
-      if (event.key === 'Home') nextIndex = 0;
-      if (event.key === 'End') nextIndex = buttons.length - 1;
-      if (nextIndex !== null) {
+  useGlobalShortcutHandler(
+    {
+      onKeyDown: (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onClose();
+          return true;
+        }
+        const buttons = [
+          ...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
+            'button:not(:disabled)',
+          ) ?? []),
+        ];
+        if (buttons.length === 0) return true;
+        const currentIndex = buttons.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        let nextIndex: number | null = null;
+        if (event.key === 'ArrowDown') {
+          nextIndex = (currentIndex + 1) % buttons.length;
+        }
+        if (event.key === 'ArrowUp') {
+          nextIndex =
+            currentIndex <= 0 ? buttons.length - 1 : currentIndex - 1;
+        }
+        if (event.key === 'Home') nextIndex = 0;
+        if (event.key === 'End') nextIndex = buttons.length - 1;
+        if (nextIndex === null) return true;
         event.preventDefault();
         buttons[nextIndex].focus();
-      }
-    };
+        return true;
+      },
+    },
+    80,
+  );
+
+  useEffect(() => {
+    const close = () => onClose();
     window.addEventListener('pointerdown', close);
     window.addEventListener('blur', close);
-    window.addEventListener('keydown', onKey);
     menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     return () => {
       window.removeEventListener('pointerdown', close);
       window.removeEventListener('blur', close);
-      window.removeEventListener('keydown', onKey);
     };
   }, [onClose]);
 

@@ -1,16 +1,25 @@
 export function isEditableTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
-  return (
-    element?.tagName === 'INPUT' ||
-    element?.tagName === 'TEXTAREA' ||
-    element?.tagName === 'SELECT'
+  return Boolean(
+    element?.isContentEditable ||
+      element?.closest?.('input, textarea, select, [contenteditable="true"]'),
   );
 }
 
-/** True while keyboard input belongs to a modal dialog or context menu. */
-export function hasBlockingOverlay(): boolean {
+export type ModalUiState = {
+  manualOpen: boolean;
+  shortcutsOpen: boolean;
+  projectManagerOpen: boolean;
+};
+
+export function hasBlockingModal(ui: ModalUiState): boolean {
+  return ui.manualOpen || ui.shortcutsOpen || ui.projectManagerOpen;
+}
+
+/** Context menus remain DOM-local and are the only queried blocking overlay. */
+export function hasBlockingMenu(): boolean {
   return (
     typeof document !== 'undefined' &&
-    document.querySelector('[aria-modal="true"], [role="menu"]') !== null
+    document.querySelector('[role="menu"]') !== null
   );
 }

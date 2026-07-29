@@ -15,6 +15,7 @@ import type { AppState } from './store/types';
 
 export const useAppStore = create<AppState>()((set, get) => ({
   project: createEmptyProject(),
+  snapRevision: 0,
   selectedEntityIds: [],
   activeTool: 'select',
   view: defaultView(800, 600),
@@ -26,6 +27,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     language: readLanguage(),
     manualOpen: false,
     shortcutsOpen: false,
+    projectManagerOpen: false,
     activeLayerId: 'layer-default',
     invalidEntityIds: [],
     showGrid: true,

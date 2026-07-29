@@ -1,6 +1,5 @@
-import { polygonArea } from '../../geometry/area';
 import { convexHull } from '../../geometry/convexHull';
-import { defaultEngine } from '../../geometry/geometryEngine';
+import { getEngine } from '../../geometry/geometryEngine';
 import { knifeSplitPolygon } from '../../geometry/knifeSplit';
 import { polygonBBox } from '../../geometry/measure';
 import { normalizePolygon } from '../../geometry/normalize';
@@ -16,22 +15,53 @@ import { offsetPolygon } from '../../geometry/offset';
 import { repairPolygon } from '../../geometry/repair';
 import { chamferPolygon, filletPolygon } from '../../geometry/corner';
 import { minimumAreaBoundingRectangle } from '../../geometry/minimumBoundingRectangle';
+import type { ParametricConstraint } from '../../geometry/constraints';
 import type { Point, PolygonGeometry } from '../../geometry/types';
 import { boundsForEntities } from '../transform';
 import { createPolygonEntity } from '../projectFactory';
-import type { PolygonEntity } from '../projectTypes';
+import {
+  mapProjectConstraintPointIds,
+  parseProjectPointKey,
+  projectPointKey,
+  sanitizeProjectConstraints,
+} from '../projectConstraints';
+import type { PolygonEntity, VertexRef } from '../projectTypes';
 import {
   alignOffset,
   collectPolygonPoints,
   editRingGeometry,
   getPolygon,
   isPolygon,
+  mutateSelectedPolygons,
   polygonCenter,
   polygonsByIds,
   replaceEntities,
   touchProject,
 } from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
+
+function reindexConstraintsAfterVertexInsert(
+  constraints: readonly ParametricConstraint[],
+  vertex: VertexRef,
+  insertionIndex: number,
+): ParametricConstraint[] {
+  return constraints.map((constraint) =>
+    mapProjectConstraintPointIds(constraint, (pointId) => {
+      const reference = parseProjectPointKey(pointId);
+      if (!reference || reference.entityId !== vertex.entityId) return pointId;
+      const sameRing =
+        vertex.ringType === 'outer'
+          ? reference.ring === 'outer'
+          : reference.ring === 'hole' &&
+            reference.holeIndex === vertex.holeIndex;
+      if (!sameRing || reference.pointIndex < insertionIndex) return pointId;
+      return projectPointKey({
+        ...reference,
+        pointIndex: reference.pointIndex + 1,
+      });
+    }),
+  );
+}
 
 export function createGeometryActions(set: AppSet, get: AppGet): Pick<
   AppState,
@@ -70,7 +100,13 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       get().setErrorMessage('errors.booleanNeedsTwo');
       return;
     }
-    const result = defaultEngine[op](polys.map((p) => p.geometry));
+    let result: PolygonGeometry[];
+    try {
+      result = getEngine()[op](polys.map((p) => p.geometry));
+    } catch {
+      get().setErrorMessage('errors.geometryEngineFailed');
+      return;
+    }
     if (result.length === 0) {
       get().setErrorMessage('errors.emptyResult');
       return;
@@ -98,7 +134,7 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       x: (bounds.minX + bounds.maxX) / 2,
       y: (bounds.minY + bounds.maxY) / 2,
     };
-    const selected = new Set(selectedEntityIds);
+    const selected = new Set(polys.map((polygon) => polygon.id));
     get().pushHistory();
     set((s) => ({
       project: touchProject(
@@ -110,6 +146,26 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         }),
       ),
     }));
+  }
+
+  function commitSelectedPolygonMutation(
+    mutate: (
+      entity: PolygonEntity,
+      selected: PolygonEntity[],
+    ) => PolygonEntity | null,
+    errorMessage?: string,
+  ): boolean {
+    const { project, selectedEntityIds } = get();
+    const result = mutateSelectedPolygons(project, selectedEntityIds, mutate);
+    if (!result.changed) {
+      if (errorMessage) get().setErrorMessage(errorMessage);
+      return false;
+    }
+    get().pushHistory();
+    set((state) => ({
+      project: touchProject(state.project, result.entities),
+    }));
+    return true;
   }
 
   return {
@@ -131,10 +187,16 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         get().setErrorMessage('errors.cutterNotSelected');
         return;
       }
-      const result = defaultEngine.difference(
-        [subject.geometry],
-        cutters.map((c) => c.geometry),
-      );
+      let result: PolygonGeometry[];
+      try {
+        result = getEngine().difference(
+          [subject.geometry],
+          cutters.map((c) => c.geometry),
+        );
+      } catch {
+        get().setErrorMessage('errors.geometryEngineFailed');
+        return;
+      }
       const newEntities = result.map((g) =>
         createPolygonEntity(g, {
           name: 'Difference',
@@ -161,12 +223,6 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       const result = knifeSplitPolygon(target.geometry, start, end);
       if (!result.ok) {
         get().setErrorMessage(`errors.knife.${result.reason}`);
-        return false;
-      }
-      const totalBefore = polygonArea(target.geometry);
-      const totalAfter = result.polygons.reduce((acc, p) => acc + polygonArea(p), 0);
-      if (Math.abs(totalBefore - totalAfter) > 1e-3) {
-        get().setErrorMessage('errors.knife.areaMismatch');
         return false;
       }
       const newEntities = result.polygons.map((g, i) =>
@@ -222,25 +278,16 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
 
     simplifySelected: (tolerance) => {
       if (!(tolerance > 0)) return;
-      const { project, selectedEntityIds } = get();
-      const polys = polygonsByIds(project, selectedEntityIds);
-      if (polys.length === 0) return;
-      const selected = new Set(selectedEntityIds);
-      get().pushHistory();
-      set((s) => ({
-        project: touchProject(
-          s.project,
-          s.project.entities.map((e) => {
-            if (!isPolygon(e) || !selected.has(e.id)) return e;
-            const simplified: PolygonGeometry = {
-              outer: simplifyRing(e.geometry.outer, tolerance),
-              holes: e.geometry.holes.map((h) => simplifyRing(h, tolerance)),
-            };
-            const normalized = normalizePolygon(simplified);
-            return normalized ? { ...e, geometry: normalized } : e;
-          }),
-        ),
-      }));
+      commitSelectedPolygonMutation((entity) => {
+        const simplified: PolygonGeometry = {
+          outer: simplifyRing(entity.geometry.outer, tolerance),
+          holes: entity.geometry.holes.map((hole) =>
+            simplifyRing(hole, tolerance),
+          ),
+        };
+        const normalized = normalizePolygon(simplified);
+        return normalized ? { ...entity, geometry: normalized } : null;
+      });
     },
 
     alignSelected: (mode) => {
@@ -249,22 +296,17 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       if (polys.length < 2) return;
       const group = boundsForEntities(polys);
       if (!group) return;
-      const selected = new Set(selectedEntityIds);
-      get().pushHistory();
-      set((s) => ({
-        project: touchProject(
-          s.project,
-          s.project.entities.map((e) => {
-            if (!isPolygon(e) || !selected.has(e.id)) return e;
-            const box = polygonBBox(e.geometry);
-            if (!box) return e;
-            const { dx, dy } = alignOffset(box, group, mode);
-            return dx === 0 && dy === 0
-              ? e
-              : { ...e, geometry: translatePolygon(e.geometry, dx, dy) };
-          }),
-        ),
-      }));
+      commitSelectedPolygonMutation((entity) => {
+        const box = polygonBBox(entity.geometry);
+        if (!box) return null;
+        const { dx, dy } = alignOffset(box, group, mode);
+        return dx === 0 && dy === 0
+          ? null
+          : {
+              ...entity,
+              geometry: translatePolygon(entity.geometry, dx, dy),
+            };
+      });
     },
 
     distributeSelected: (axis) => {
@@ -281,38 +323,58 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       const step = (last - first) / (items.length - 1);
       const targetById = new Map<string, number>();
       items.forEach((it, i) => targetById.set(it.id, first + step * i));
-      get().pushHistory();
-      set((s) => ({
-        project: touchProject(
-          s.project,
-          s.project.entities.map((e) => {
-            if (!isPolygon(e)) return e;
-            const target = targetById.get(e.id);
-            if (target === undefined) return e;
-            const center = polygonCenter(e, axis);
-            if (center === null) return e;
-            const delta = target - center;
-            if (delta === 0) return e;
-            return {
-              ...e,
+      commitSelectedPolygonMutation((entity) => {
+        const target = targetById.get(entity.id);
+        if (target === undefined) return null;
+        const center = polygonCenter(entity, axis);
+        if (center === null) return null;
+        const delta = target - center;
+        return delta === 0
+          ? null
+          : {
+              ...entity,
               geometry: translatePolygon(
-                e.geometry,
+                entity.geometry,
                 axis === 'x' ? delta : 0,
                 axis === 'y' ? delta : 0,
               ),
             };
-          }),
-        ),
-      }));
+      });
     },
 
     insertVertex: (ref, point) => {
-      const ent = getPolygon(get().project, ref.entityId);
+      const project = get().project;
+      const ent = getPolygon(project, ref.entityId);
       if (!ent) return;
+      const ring =
+        ref.ringType === 'outer'
+          ? ent.geometry.outer
+          : ent.geometry.holes[ref.holeIndex ?? -1];
+      if (!ring) return;
+      const insertionIndex =
+        Math.max(0, Math.min(ring.length - 1, ref.vertexIndex)) + 1;
+      const constraints = reindexConstraintsAfterVertexInsert(
+        project.constraints ?? [],
+        ref,
+        insertionIndex,
+      );
       const geom = editRingGeometry(ent, ref, (ring) =>
         insertVertexInRing(ring, ref.vertexIndex, point),
       );
-      if (geom && geom !== 'too-few') get().updateEntityGeometry(ref.entityId, geom);
+      if (geom && geom !== 'too-few') {
+        get().updateEntityGeometry(ref.entityId, geom);
+        if (constraints.length > 0) {
+          set((state) => ({
+            project: {
+              ...state.project,
+              constraints: sanitizeProjectConstraints(
+                state.project,
+                constraints,
+              ),
+            },
+          }));
+        }
+      }
     },
 
     deleteVertex: (ref) => {
@@ -418,14 +480,9 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         get().setErrorMessage('errors.invalidCorner');
         return;
       }
-      const { project, selectedEntityIds } = get();
-      const selected = new Set(selectedEntityIds);
-      let changed = false;
-      const entities = project.entities.map((entity) => {
-        if (!isPolygon(entity) || !selected.has(entity.id)) return entity;
+      commitSelectedPolygonMutation((entity) => {
         const geometry = chamferPolygon(entity.geometry, distance);
-        if (!geometry) return entity;
-        changed = true;
+        if (!geometry) return null;
         return {
           ...entity,
           geometry,
@@ -434,13 +491,7 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
             createdByOperation: 'chamfer' as const,
           },
         };
-      });
-      if (!changed) {
-        get().setErrorMessage('errors.invalidCorner');
-        return;
-      }
-      get().pushHistory();
-      set((state) => ({ project: touchProject(state.project, entities) }));
+      }, 'errors.invalidCorner');
     },
 
     filletSelected: (radius, segments = 4) => {
@@ -448,16 +499,11 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
         get().setErrorMessage('errors.invalidCorner');
         return;
       }
-      const { project, selectedEntityIds } = get();
-      const selected = new Set(selectedEntityIds);
-      let changed = false;
-      const entities = project.entities.map((entity) => {
-        if (!isPolygon(entity) || !selected.has(entity.id)) return entity;
+      commitSelectedPolygonMutation((entity) => {
         const geometry = filletPolygon(entity.geometry, radius, {
           segmentsPerQuarter: segments,
         });
-        if (!geometry) return entity;
-        changed = true;
+        if (!geometry) return null;
         return {
           ...entity,
           geometry,
@@ -466,13 +512,7 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
             createdByOperation: 'fillet' as const,
           },
         };
-      });
-      if (!changed) {
-        get().setErrorMessage('errors.invalidCorner');
-        return;
-      }
-      get().pushHistory();
-      set((state) => ({ project: touchProject(state.project, entities) }));
+      }, 'errors.invalidCorner');
     },
 
     minimumBoundingRectangleSelected: () => {

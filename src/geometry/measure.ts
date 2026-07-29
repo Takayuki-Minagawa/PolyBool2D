@@ -1,5 +1,5 @@
 import type { PolygonGeometry, Point, Ring } from './types';
-import { distance } from './numeric';
+import { AREA_ABSOLUTE_TOLERANCE, distance } from './numeric';
 import { signedRingArea, ringCentroid } from './area';
 
 /** Total length of a closed ring (last vertex connects back to the first). */
@@ -81,6 +81,6 @@ export function polygonCentroid(poly: PolygonGeometry): Point {
   }
   // Guard against degenerate or invalid input (holes >= outer) where the net
   // area is non-positive; fall back to the outer-ring centroid.
-  if (area <= 1e-12) return outerCentroid;
+  if (area <= AREA_ABSOLUTE_TOLERANCE) return outerCentroid;
   return { x: cx / area, y: cy / area };
 }

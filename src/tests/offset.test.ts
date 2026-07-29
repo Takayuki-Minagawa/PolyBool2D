@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { polygonArea, multiPolygonArea } from '../geometry/area';
 import { rectangleToRing } from '../geometry/circle';
 import { polygonBBox } from '../geometry/measure';
-import { bufferPolygon, offsetPolygon } from '../geometry/offset';
+import {
+  bufferPolygon,
+  bufferPolygonResult,
+  offsetPolygon,
+} from '../geometry/offset';
 
 describe('polygon buffer / offset', () => {
   const square = {
@@ -84,5 +88,33 @@ describe('polygon buffer / offset', () => {
     expect(result).toHaveLength(1);
     expect(result[0].holes).toHaveLength(1);
     expect(multiPolygonArea(result)).toBeGreaterThan(polygonArea(drawn));
+  });
+
+  it('reports invalid input without changing the compatibility return value', () => {
+    expect(bufferPolygon(square, Number.NaN)).toEqual([]);
+    expect(bufferPolygonResult(square, Number.NaN)).toMatchObject({
+      ok: false,
+      value: [],
+      reason: 'invalid-input',
+    });
+  });
+
+  it('caps excessive arc detail for complex buffers and reports the reduction', () => {
+    const pentagon = {
+      outer: Array.from({ length: 5 }, (_, index) => {
+        const angle = (index / 5) * Math.PI * 2;
+        return { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 };
+      }),
+      holes: [],
+    };
+    const result = bufferPolygonResult(pentagon, 0.5, {
+      arcSegments: 4096,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'arc-segments-reduced' }),
+      ]),
+    );
   });
 });

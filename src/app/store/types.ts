@@ -35,6 +35,8 @@ export type DrawingPreview =
   | { type: 'arc'; center: Point; start: Point | null; cursor: Point }
   | { type: 'guide-line'; start: Point; cursor: Point }
   | { type: 'measure'; points: Point[]; cursor: Point | null }
+  | { type: 'linear-dimension'; points: Point[]; cursor: Point | null }
+  | { type: 'angular-dimension'; points: Point[]; cursor: Point | null }
   | { type: 'knife'; start: Point; cursor: Point };
 
 export type AppUiState = {
@@ -42,6 +44,7 @@ export type AppUiState = {
   language: Language;
   manualOpen: boolean;
   shortcutsOpen: boolean;
+  projectManagerOpen: boolean;
   activeLayerId: string;
   invalidEntityIds: string[];
   showGrid: boolean;
@@ -52,6 +55,8 @@ export type AppUiState = {
 
 export type AppState = {
   project: Project;
+  /** Increments for committed scene changes; transient drag frames share a value. */
+  snapRevision: number;
   selectedEntityIds: string[];
   activeTool: ToolName;
   view: ViewTransform;
@@ -71,15 +76,30 @@ export type AppState = {
     metadata?: PolygonEntity['metadata'],
   ) => PolygonEntity | null;
   importPolygonGeometries: (geometries: PolygonGeometry[]) => PolygonEntity[];
+  importDrawingGeometries: (
+    polygons: PolygonGeometry[],
+    linears: Array<{
+      points: Point[];
+      kind: Extract<LinearEntityKind, 'polyline' | 'arc'>;
+    }>,
+  ) => Entity[];
   addRectangle: (p1: Point, p2: Point) => PolygonEntity | null;
   addCircle: (center: Point, radius: number) => PolygonEntity | null;
   addEllipse: (center: Point, radiusX: number, radiusY: number) => PolygonEntity | null;
-  addLinearEntity: (points: Point[], kind: LinearEntityKind) => Entity | null;
+  addLinearEntity: (
+    points: Point[],
+    kind: LinearEntityKind,
+    options?: Partial<
+      Pick<
+        import('../projectTypes').LinearEntity,
+        'name' | 'style' | 'label' | 'precision' | 'textHeight' | 'rotationDeg'
+      >
+    >,
+  ) => Entity | null;
   addHole: (entityId: string, ring: Ring) => boolean;
   removeHole: (entityId: string, holeIndex: number) => void;
   updateEntityGeometry: (id: string, geom: PolygonGeometry) => void;
   updateEntityGeometryTransient: (id: string, geom: PolygonGeometry) => void;
-  updateEntitiesGeometryTransient: (updates: Map<string, PolygonGeometry>) => void;
   updateEntitiesTransient: (updates: Map<string, Entity>) => void;
   removeEntities: (ids: string[]) => void;
   unionSelected: () => void;
@@ -122,6 +142,7 @@ export type AppState = {
   setLanguage: (l: Language) => void;
   setManualOpen: (v: boolean) => void;
   setShortcutsOpen: (v: boolean) => void;
+  setProjectManagerOpen: (v: boolean) => void;
   toggleGrid: () => void;
   toggleSnap: () => void;
   setStatusMessage: (m: string | null) => void;

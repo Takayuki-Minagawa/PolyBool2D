@@ -140,6 +140,28 @@ export function pointInRing(point: Point, ring: Point[]): boolean {
   return inside;
 }
 
+/**
+ * Point-in-ring test for topology reconstruction. Unlike `pointInRing`, a
+ * point on the boundary is not considered contained.
+ */
+export function pointInRingStrict(point: Point, ring: Point[]): boolean {
+  if (ring.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i].x;
+    const yi = ring[i].y;
+    const xj = ring[j].x;
+    const yj = ring[j].y;
+    if (pointOnSegment(point, ring[j], ring[i])) return false;
+    const straddlesY = (yi > point.y) !== (yj > point.y);
+    const intersect =
+      straddlesY &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 export function pointInPolygon(
   point: Point,
   polygon: { outer: Point[]; holes: Point[][] },

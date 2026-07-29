@@ -3,10 +3,15 @@ import {
   entitiesReassignedFromLayer,
   isEntityEffectivelyLocked,
   isEntityEffectivelyVisible,
+  unlockedEntityIds,
   uniqueLayerName,
 } from '../layers';
 import type { Layer } from '../projectTypes';
-import { touchProject, touchProjectSettings } from './helpers';
+import {
+  resolveDrawingLayer,
+  touchProject,
+  touchProjectUpdatedAt,
+} from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
 
 const LAYER_COLORS = ['#3a8dde', '#e05d5d', '#41a66b', '#9b6bd3', '#d58b2a', '#2ca6a4'];
@@ -32,7 +37,7 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
       };
       state.pushHistory();
       set((current) => ({
-        project: touchProjectSettings({
+        project: touchProjectUpdatedAt({
           ...current.project,
           layers: [...current.project.layers, layer],
         }),
@@ -58,19 +63,16 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
       if (!changed) return;
       current.pushHistory();
       set((state) => {
-        const project = touchProjectSettings({
+        const project = touchProjectUpdatedAt({
           ...state.project,
           layers: state.project.layers.map((layer) =>
             layer.id === id ? { ...layer, ...sanitized } : layer,
           ),
         });
-        const activeLayerId = project.layers.some(
-          (layer) =>
-            layer.id === state.ui.activeLayerId && layer.visible && !layer.locked,
-        )
-          ? state.ui.activeLayerId
-          : project.layers.find((layer) => layer.visible && !layer.locked)?.id ??
-            project.layers[0].id;
+        const activeLayerId =
+          resolveDrawingLayer(project, state.ui.activeLayerId)?.id ??
+          project.layers[0]?.id ??
+          '';
         return {
           project,
           selectedEntityIds: state.selectedEntityIds.filter((entityId) => {
@@ -91,11 +93,23 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
         current.setErrorMessage('errors.layerMinimum');
         return;
       }
+      const existing = current.project.layers.find((layer) => layer.id === id);
       const fallback = current.project.layers.find((layer) => layer.id !== id);
-      if (!fallback || !current.project.layers.some((layer) => layer.id === id)) return;
+      if (!existing || !fallback) return;
+      if (
+        existing.locked ||
+        current.project.entities.some(
+          (entity) =>
+            entity.layerId === id &&
+            isEntityEffectivelyLocked(current.project, entity),
+        )
+      ) {
+        current.setErrorMessage('errors.layerDeleteProtected');
+        return;
+      }
       current.pushHistory();
       set((state) => ({
-        project: touchProjectSettings({
+        project: touchProjectUpdatedAt({
           ...state.project,
           layers: state.project.layers.filter((layer) => layer.id !== id),
           entities: entitiesReassignedFromLayer(state.project.entities, id, fallback.id),
@@ -118,25 +132,38 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
 
     assignSelectedToLayer: (layerId) => {
       const current = get();
+      const targetLayer = current.project.layers.find(
+        (layer) => layer.id === layerId,
+      );
       if (
         current.selectedEntityIds.length === 0 ||
-        !current.project.layers.some((layer) => layer.id === layerId)
+        !targetLayer
       ) {
         return;
       }
-      const selected = new Set(current.selectedEntityIds);
+      const selected = new Set(
+        unlockedEntityIds(current.project, current.selectedEntityIds),
+      );
+      const changedIds = new Set(
+        current.project.entities
+          .filter(
+            (entity) =>
+              selected.has(entity.id) &&
+              entity.layerId !== layerId,
+          )
+          .map((entity) => entity.id),
+      );
+      if (changedIds.size === 0) return;
       current.pushHistory();
       set((state) => ({
         project: touchProject(
           state.project,
           state.project.entities.map((entity) =>
-            selected.has(entity.id) ? { ...entity, layerId } : entity,
+            changedIds.has(entity.id) ? { ...entity, layerId } : entity,
           ),
         ),
-        selectedEntityIds: state.project.layers.find((layer) => layer.id === layerId)?.locked ||
-          state.project.layers.find((layer) => layer.id === layerId)?.visible === false
-          ? []
-          : state.selectedEntityIds,
+        selectedEntityIds:
+          targetLayer.locked || !targetLayer.visible ? [] : [...selected],
       }));
     },
 
@@ -150,10 +177,17 @@ export function createLayerActions(set: AppSet, get: AppGet): Pick<
         if (!sanitized.name) delete sanitized.name;
       }
       if (
-        sanitized.layerId !== undefined &&
-        !current.project.layers.some((layer) => layer.id === sanitized.layerId)
+        sanitized.layerId !== undefined
       ) {
-        delete sanitized.layerId;
+        const targetLayer = current.project.layers.find(
+          (layer) => layer.id === sanitized.layerId,
+        );
+        if (
+          !targetLayer ||
+          isEntityEffectivelyLocked(current.project, existing)
+        ) {
+          delete sanitized.layerId;
+        }
       }
       const changed =
         (sanitized.name !== undefined && sanitized.name !== existing.name) ||

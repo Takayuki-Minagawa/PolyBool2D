@@ -1,5 +1,10 @@
 import { convexHull } from './convexHull';
-import { dot } from './numeric';
+import {
+  ARC_SWEEP_TOLERANCE,
+  areaComparisonTolerance,
+  dot,
+  isFiniteRing,
+} from './numeric';
 import type {
   MultiPolygonGeometry,
   Point,
@@ -95,7 +100,7 @@ export function minimumAreaBoundingRectangle(
 ): MinimumAreaBoundingRectangle | null {
   if (
     points.length < 3 ||
-    points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))
+    !isFiniteRing(points)
   ) {
     return null;
   }
@@ -117,11 +122,12 @@ export function minimumAreaBoundingRectangle(
       best = candidate;
       continue;
     }
-    const tolerance = 1e-12 * Math.max(1, best.area, candidate.area);
+    const tolerance = areaComparisonTolerance(best.area, candidate.area);
     if (
       candidate.area < best.area - tolerance ||
       (Math.abs(candidate.area - best.area) <= tolerance &&
-        Math.abs(candidate.angleRad) < Math.abs(best.angleRad) - 1e-12)
+        Math.abs(candidate.angleRad) <
+          Math.abs(best.angleRad) - ARC_SWEEP_TOLERANCE)
     ) {
       best = candidate;
     }

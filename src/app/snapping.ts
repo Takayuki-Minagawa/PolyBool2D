@@ -11,7 +11,13 @@ type SnapIndex = {
   infiniteGuides: Segment[];
 };
 
-const SNAP_INDEX_CACHE = new WeakMap<Project, SnapIndex>();
+type SnapRevision = string | number | object;
+type SnapCacheEntry = {
+  revision: SnapRevision;
+  index: SnapIndex;
+};
+
+const SNAP_INDEX_CACHE = new Map<string, SnapCacheEntry>();
 
 function segmentBox(segment: Segment) {
   return {
@@ -22,9 +28,9 @@ function segmentBox(segment: Segment) {
   };
 }
 
-function buildSnapIndex(project: Project): SnapIndex {
-  const cached = SNAP_INDEX_CACHE.get(project);
-  if (cached) return cached;
+function buildSnapIndex(project: Project, revision: SnapRevision): SnapIndex {
+  const cached = SNAP_INDEX_CACHE.get(project.id);
+  if (cached?.revision === revision) return cached.index;
   const vertices: Point[] = [];
   const segments: Segment[] = [];
   const infiniteGuides: Segment[] = [];
@@ -60,7 +66,11 @@ function buildSnapIndex(project: Project): SnapIndex {
     ),
     infiniteGuides,
   };
-  SNAP_INDEX_CACHE.set(project, index);
+  SNAP_INDEX_CACHE.set(project.id, { revision, index });
+  if (SNAP_INDEX_CACHE.size > 16) {
+    const oldest = SNAP_INDEX_CACHE.keys().next().value;
+    if (oldest !== undefined) SNAP_INDEX_CACHE.delete(oldest);
+  }
   return index;
 }
 
@@ -114,11 +124,14 @@ export function snapWorldPoint(
   project: Project,
   view: ViewTransform,
   context: SnapContext = {},
+  revision?: number,
 ): Point {
   const { settings } = project;
   const tolWorld = settings.snapTolerancePx / view.scale;
 
-  const index = buildSnapIndex(project);
+  // Direct geometry callers retain reference-based invalidation. The viewport
+  // supplies a committed revision so transient drag frames reuse one R-tree.
+  const index = buildSnapIndex(project, revision ?? project.entities);
   const query = {
     minX: world.x - tolWorld,
     minY: world.y - tolWorld,

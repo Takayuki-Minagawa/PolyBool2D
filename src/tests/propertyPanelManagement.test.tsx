@@ -68,6 +68,42 @@ function renderPanel() {
 }
 
 describe('PropertyPanel layer manager', () => {
+  it('shows workspace extras and underlays for every selection state', () => {
+    renderPanel();
+    expect(host!.textContent).toContain('グループ・部品・拘束');
+    expect(host!.textContent).toContain('下絵画像');
+
+    act(() => {
+      useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 4, y: 2 });
+    });
+
+    expect(host!.textContent).toContain('グループ・部品・拘束');
+    expect(host!.textContent).toContain('下絵画像');
+  });
+
+  it('uses the localized default name when grouping a selection', () => {
+    let firstId = '';
+    let secondId = '';
+    act(() => {
+      firstId = useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 4, y: 2 })!.id;
+      secondId = useAppStore
+        .getState()
+        .addRectangle({ x: 10, y: 0 }, { x: 14, y: 2 })!.id;
+      useAppStore.getState().selectMany([firstId, secondId]);
+    });
+    renderPanel();
+
+    act(() => textButton(i18n.t('panel.groupSelection')).click());
+
+    expect(useAppStore.getState().project.groups?.[0]?.name).toBe(
+      '\u30b0\u30eb\u30fc\u30d7 1',
+    );
+  });
+
   it('is visible without a selection and manages layer properties and assignment', () => {
     renderPanel();
     expect(host!.textContent).toContain('レイヤー');
@@ -112,7 +148,55 @@ describe('PropertyPanel layer manager', () => {
   });
 });
 
+describe('PropertyPanel section properties', () => {
+  it('shows second moments, section moduli, and radii for one polygon', () => {
+    act(() => {
+      useAppStore
+        .getState()
+        .addRectangle({ x: 0, y: 0 }, { x: 4, y: 2 });
+    });
+    renderPanel();
+
+    expect(host!.textContent).toContain('断面性能');
+    expect(host!.textContent).toContain('断面二次モーメント Ix2.667 mm⁴');
+    expect(host!.textContent).toContain('断面二次モーメント Iy10.667 mm⁴');
+    expect(host!.textContent).toContain('断面係数 Zx2.667 mm³');
+    expect(host!.textContent).toContain('断面係数 Zy5.333 mm³');
+    expect(host!.textContent).toContain('回転半径 rx0.577 mm');
+    expect(host!.textContent).toContain('回転半径 ry1.155 mm');
+  });
+});
+
 describe('PropertyPanel entity outliner', () => {
+  it('localizes dimension and annotation entity type badges', async () => {
+    await i18n.changeLanguage('en');
+    act(() => {
+      useAppStore.getState().addLinearEntity(
+        [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 2 }],
+        'linear-dimension',
+      );
+      useAppStore.getState().addLinearEntity(
+        [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }],
+        'angular-dimension',
+      );
+      useAppStore.getState().addLinearEntity(
+        [{ x: 4, y: 5 }],
+        'annotation',
+        { label: 'Note' },
+      );
+    });
+    renderPanel();
+
+    expect(
+      [...host!.querySelectorAll('.entity-type-badge')].map(
+        (badge) => badge.textContent,
+      ),
+    ).toEqual(['Linear dimension', 'Angular dimension', 'Annotation']);
+    expect(host!.querySelector('section .muted-text')?.textContent).toBe(
+      'Annotation',
+    );
+  });
+
   it('selects and edits entity name, visibility, lock, and layer', () => {
     act(() => {
       useAppStore.getState().addRectangle({ x: 0, y: 0 }, { x: 10, y: 10 });

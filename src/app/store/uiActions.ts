@@ -12,6 +12,7 @@ export function createUiActions(set: AppSet): Pick<
   | 'setLanguage'
   | 'setManualOpen'
   | 'setShortcutsOpen'
+  | 'setProjectManagerOpen'
   | 'toggleGrid'
   | 'toggleSnap'
   | 'setStatusMessage'
@@ -30,12 +31,32 @@ export function createUiActions(set: AppSet): Pick<
 
     setManualOpen: (v) =>
       set((s) => ({
-        ui: { ...s.ui, manualOpen: v, shortcutsOpen: v ? false : s.ui.shortcutsOpen },
+        ui: {
+          ...s.ui,
+          manualOpen: v,
+          shortcutsOpen: v ? false : s.ui.shortcutsOpen,
+          projectManagerOpen: v ? false : s.ui.projectManagerOpen,
+        },
       })),
 
     setShortcutsOpen: (v) =>
       set((s) => ({
-        ui: { ...s.ui, shortcutsOpen: v, manualOpen: v ? false : s.ui.manualOpen },
+        ui: {
+          ...s.ui,
+          shortcutsOpen: v,
+          manualOpen: v ? false : s.ui.manualOpen,
+          projectManagerOpen: v ? false : s.ui.projectManagerOpen,
+        },
+      })),
+
+    setProjectManagerOpen: (v) =>
+      set((s) => ({
+        ui: {
+          ...s.ui,
+          projectManagerOpen: v,
+          manualOpen: v ? false : s.ui.manualOpen,
+          shortcutsOpen: v ? false : s.ui.shortcutsOpen,
+        },
       })),
 
     toggleGrid: () =>

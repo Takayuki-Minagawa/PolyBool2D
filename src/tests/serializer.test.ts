@@ -4,7 +4,7 @@ import {
   serializeProject,
 } from '../persistence/projectSerializer';
 import { createEmptyProject, createPolygonEntity } from '../app/projectFactory';
-import { APP_VERSION } from '../app/projectTypes';
+import { PROJECT_SCHEMA_VERSION } from '../app/projectTypes';
 import { rectangleToRing } from '../geometry/circle';
 
 function validProject() {
@@ -113,7 +113,7 @@ describe('deserializeProject', () => {
 
     const out = deserializeProject(JSON.stringify(legacy));
 
-    expect(out?.version).toBe(APP_VERSION);
+    expect(out?.version).toBe(PROJECT_SCHEMA_VERSION);
     expect(out?.settings.angleSnapEnabled).toBe(false);
     expect(out?.settings.angleSnapIncrementDeg).toBeGreaterThan(0);
   });

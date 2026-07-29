@@ -23,6 +23,24 @@ export type GeometryValidationResult = {
   issues: GeometryValidationIssue[];
 };
 
+export type GeometryOperationResult<
+  T,
+  FailureReason extends string,
+  Diagnostic = never,
+> =
+  | {
+      ok: true;
+      value: T;
+      diagnostics: Diagnostic[];
+    }
+  | {
+      ok: false;
+      value: T;
+      reason: FailureReason;
+      message: string;
+      diagnostics: Diagnostic[];
+    };
+
 export interface GeometryEngine {
   union(input: MultiPolygonGeometry): MultiPolygonGeometry;
   difference(
@@ -34,6 +52,8 @@ export interface GeometryEngine {
   area(input: MultiPolygonGeometry): number;
   normalize(input: MultiPolygonGeometry): MultiPolygonGeometry;
   validate(input: MultiPolygonGeometry): GeometryValidationResult;
+  /** Normalize self-crossing input without discarding zero signed-area rings. */
+  repair?(input: MultiPolygonGeometry): MultiPolygonGeometry;
 }
 
 export const EPS = 1e-9;

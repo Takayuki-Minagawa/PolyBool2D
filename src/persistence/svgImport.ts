@@ -1,7 +1,7 @@
 import { circleToRing, rectangleToRing } from '../geometry/circle';
-import { pointInRing } from '../geometry/intersections';
-import { normalizePolygon, normalizeRing } from '../geometry/normalize';
-import { signedRingArea } from '../geometry/area';
+import { normalizePolygon } from '../geometry/normalize';
+import { ellipseToRing } from '../geometry/primitives';
+import { nestRingsAsPolygons } from '../geometry/ringNesting';
 import type { Point, PolygonGeometry, Ring } from '../geometry/types';
 
 const NUMBER_PATTERN = /[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g;
@@ -304,41 +304,9 @@ function sampleCurvedPath(pathData: string, samples: number): Ring | null {
 }
 
 function ringsToPolygons(rings: Ring[], flipY: boolean, matrix: SvgMatrix): PolygonGeometry[] {
-  const normalized = rings
-    .map((ring) => normalizeRing(ring.map((point) => mapPoint(point, flipY, matrix))))
-    .filter((ring): ring is Ring => ring !== null)
-    .sort((a, b) => Math.abs(signedRingArea(b)) - Math.abs(signedRingArea(a)));
-  const nodes: { ring: Ring; parent: number | null; depth: number }[] = [];
-
-  for (const ring of normalized) {
-    let parent: number | null = null;
-    let parentArea = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < nodes.length; i += 1) {
-      const candidate = nodes[i];
-      const area = Math.abs(signedRingArea(candidate.ring));
-      if (area < parentArea && pointInRing(ring[0], candidate.ring)) {
-        parent = i;
-        parentArea = area;
-      }
-    }
-    nodes.push({ ring, parent, depth: parent === null ? 0 : nodes[parent].depth + 1 });
-  }
-
-  const polygons = new Map<number, PolygonGeometry>();
-  for (let i = 0; i < nodes.length; i += 1) {
-    const node = nodes[i];
-    if (node.depth % 2 === 0) {
-      polygons.set(i, { outer: node.ring, holes: [] });
-      continue;
-    }
-    let ancestor = node.parent;
-    while (ancestor !== null && nodes[ancestor].depth % 2 !== 0) ancestor = nodes[ancestor].parent;
-    if (ancestor !== null) polygons.get(ancestor)?.holes.push(node.ring);
-  }
-
-  return [...polygons.values()]
-    .map(normalizePolygon)
-    .filter((polygon): polygon is PolygonGeometry => polygon !== null);
+  return nestRingsAsPolygons(
+    rings.map((ring) => ring.map((point) => mapPoint(point, flipY, matrix))),
+  );
 }
 
 export function importSvgString(svgText: string, options: SvgImportOptions = {}): SvgImportResult {
@@ -421,13 +389,7 @@ export function importSvgString(svgText: string, options: SvgImportOptions = {})
       const cy = numberAttr(element, 'cy');
       const rx = numberAttr(element, 'rx', Number.NaN);
       const ry = numberAttr(element, 'ry', Number.NaN);
-      const ring: Ring = [];
-      if (rx > 0 && ry > 0) {
-        for (let i = 0; i < circleSegments; i += 1) {
-          const angle = (i / circleSegments) * Math.PI * 2;
-          ring.push({ x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry });
-        }
-      }
+      const ring = ellipseToRing({ x: cx, y: cy }, rx, ry, circleSegments);
       const polygon = normalizedPolygon(ring, flipY, transform);
       if (polygon) {
         polygons.push(polygon);

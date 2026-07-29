@@ -40,7 +40,9 @@ export function ToolPreview({
   if (
     preview.type === 'polygon' ||
     preview.type === 'hole' ||
-    preview.type === 'polyline'
+    preview.type === 'polyline' ||
+    preview.type === 'linear-dimension' ||
+    preview.type === 'angular-dimension'
   ) {
     const worldPoints = preview.cursor
       ? [...preview.points, preview.cursor]

@@ -8,13 +8,18 @@ import { ManualModal } from '../components/layout/ManualModal';
 import { ShortcutModal } from '../components/layout/ShortcutModal';
 import { CadViewport } from '../components/cad/CadViewport';
 import { useAppStore } from './appStore';
-import { hasBlockingOverlay, isEditableTarget } from './domGuards';
 import { applyDocumentLanguage, applyDocumentTheme } from './preferences';
-import { toolForShortcut } from './toolRegistry';
 import { makeId } from './idUtils';
-import { loadProjectFromLocal, saveProjectToLocal } from '../persistence/localProjectStore';
+import { projectDecodeFeedback } from './projectDecodeFeedback';
+import { useGlobalShortcuts } from './useGlobalShortcuts';
 import {
-  decodeProjectFromShareHash,
+  deleteProjectRecoverySnapshot,
+  loadProjectFromLocalResult,
+  preserveProjectRecoverySource,
+  saveProjectToLocal,
+} from '../persistence/localProjectStore';
+import {
+  decodeProjectFromShareHashSourceOutcome,
   SHARE_HASH_PREFIX,
 } from '../persistence/shareUrl';
 
@@ -24,23 +29,11 @@ export function App() {
   const language = useAppStore((s) => s.ui.language);
   const theme = useAppStore((s) => s.ui.theme);
   const loadProject = useAppStore((s) => s.loadProject);
-  const setActiveTool = useAppStore((s) => s.setActiveTool);
-  const undo = useAppStore((s) => s.undo);
-  const redo = useAppStore((s) => s.redo);
-  const removeEntities = useAppStore((s) => s.removeEntities);
-  const duplicateSelected = useAppStore((s) => s.duplicateSelected);
-  const copySelected = useAppStore((s) => s.copySelected);
-  const cutSelected = useAppStore((s) => s.cutSelected);
-  const pasteClipboard = useAppStore((s) => s.pasteClipboard);
-  const translateEntities = useAppStore((s) => s.translateEntities);
-  const selectAll = useAppStore((s) => s.selectAll);
-  const toggleGrid = useAppStore((s) => s.toggleGrid);
-  const toggleSnap = useAppStore((s) => s.toggleSnap);
-  const setShortcutsOpen = useAppStore((s) => s.setShortcutsOpen);
   const setErrorMessage = useAppStore((s) => s.setErrorMessage);
   const [initialized, setInitialized] = useState(false);
   const latestProjectRef = useRef(project);
   latestProjectRef.current = project;
+  useGlobalShortcuts();
 
   // Apply theme attribute on mount
   useEffect(() => {
@@ -58,9 +51,37 @@ export function App() {
   // A shared URL takes priority over the locally active project. Keep
   // autosave paused until the asynchronous shared payload has been decoded.
   useEffect(() => {
-    const loadLocal = () => {
-      const stored = loadProjectFromLocal();
-      if (stored) loadProject(stored);
+    const loadLocal = (): string | null => {
+      const stored = loadProjectFromLocalResult();
+      if (!stored) return null;
+      const feedback = projectDecodeFeedback(
+        stored.decodeResult,
+        (key, options) => i18n.t(key, options),
+      );
+      if (!stored.decodeResult.ok) {
+        if (feedback) setErrorMessage(feedback);
+        return feedback;
+      }
+      loadProject(stored.decodeResult.project);
+      if (feedback) setErrorMessage(feedback);
+      return feedback;
+    };
+    const clearShareHash = () => {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${window.location.search}`,
+      );
+    };
+    const combineDiagnostics = (
+      primary: string,
+      secondary: string | null,
+    ): string => secondary ? `${primary} ${secondary}` : primary;
+    const finishWithLocalFallback = (primary: string, clearHash: boolean) => {
+      if (clearHash) clearShareHash();
+      const localFeedback = loadLocal();
+      setErrorMessage(combineDiagnostics(primary, localFeedback));
+      setInitialized(true);
     };
 
     const hash = window.location.hash;
@@ -71,46 +92,87 @@ export function App() {
     }
 
     let cancelled = false;
-    void decodeProjectFromShareHash(hash)
-      .then((shared) => {
+    void decodeProjectFromShareHashSourceOutcome(hash)
+      .then((sharedAttempt) => {
         if (cancelled) return;
-        window.history.replaceState(
-          window.history.state,
-          '',
-          `${window.location.pathname}${window.location.search}`,
-        );
-        if (shared) {
+        if (!sharedAttempt.ok) {
+          finishWithLocalFallback(
+            i18n.t('errors.shareInvalid'),
+            !sharedAttempt.retryable,
+          );
+          return;
+        }
+        const sharedSource = sharedAttempt.value;
+        const sharedResult = sharedSource.decodeResult;
+        if (sharedResult?.ok) {
           const now = new Date().toISOString();
           // A shared snapshot becomes an independent local project. Reusing
           // its source ID could silently replace a newer local copy.
-          loadProject({
-            ...shared,
+          const independentProject = {
+            ...sharedResult.project,
             id: makeId('project'),
             createdAt: now,
             updatedAt: now,
-          });
+          };
+          let stagedRecovery = false;
+          if (
+            sharedResult.sourceWasNormalized &&
+            (
+              !preserveProjectRecoverySource(
+                independentProject.id,
+                sharedSource.sourceJson,
+                sharedResult.project.id,
+              )
+            )
+          ) {
+            finishWithLocalFallback(i18n.t('errors.saveFailed'), false);
+            return;
+          }
+          stagedRecovery = sharedResult.sourceWasNormalized;
+          // Do not remove the only URL copy until both the normalized project
+          // and the exact pre-normalization bytes are durable under the new
+          // local ID.
+          if (!saveProjectToLocal(independentProject)) {
+            if (stagedRecovery) {
+              deleteProjectRecoverySnapshot(independentProject.id);
+            }
+            finishWithLocalFallback(i18n.t('errors.saveFailed'), false);
+            return;
+          }
+          clearShareHash();
+          loadProject(independentProject);
+          const feedback = projectDecodeFeedback(
+            sharedResult,
+            (key, options) => i18n.t(key, options),
+          );
+          if (feedback) setErrorMessage(feedback);
         } else {
-          setErrorMessage('errors.shareInvalid');
-          loadLocal();
+          const feedback = sharedResult
+            ? projectDecodeFeedback(
+                sharedResult,
+                (key, options) => i18n.t(key, options),
+              )
+            : null;
+          finishWithLocalFallback(
+            feedback ?? i18n.t('errors.shareInvalid'),
+            false,
+          );
+          return;
         }
         setInitialized(true);
       })
       .catch(() => {
         if (cancelled) return;
-        window.history.replaceState(
-          window.history.state,
-          '',
-          `${window.location.pathname}${window.location.search}`,
+        finishWithLocalFallback(
+          i18n.t('errors.shareInvalid'),
+          false,
         );
-        setErrorMessage('errors.shareInvalid');
-        loadLocal();
-        setInitialized(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [loadProject, setErrorMessage]);
+  }, [i18n, loadProject, setErrorMessage]);
 
   // Auto-save to localStorage (debounced)
   useEffect(() => {
@@ -125,112 +187,17 @@ export function App() {
   // final guard covers closing or reloading the tab before the timer fires.
   useEffect(() => {
     if (!initialized) return;
-    const flush = () => saveProjectToLocal(latestProjectRef.current);
+    const flush = (event?: BeforeUnloadEvent) => {
+      if (saveProjectToLocal(latestProjectRef.current) || !event) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
     window.addEventListener('beforeunload', flush);
     return () => {
       window.removeEventListener('beforeunload', flush);
       flush();
     };
   }, [initialized]);
-
-  // Global keyboard shortcuts
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (isEditableTarget(e.target)) {
-        return;
-      }
-      const cmd = e.metaKey || e.ctrlKey;
-      const shortcutsOpen = useAppStore.getState().ui.shortcutsOpen;
-      if (shortcutsOpen) {
-        if (!cmd && !e.altKey && e.key === '?') {
-          e.preventDefault();
-          setShortcutsOpen(false);
-        }
-        return;
-      }
-      if (hasBlockingOverlay()) return;
-      if (!cmd && !e.altKey && e.key === '?') {
-        e.preventDefault();
-        setShortcutsOpen(true);
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        redo();
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'a') {
-        e.preventDefault();
-        selectAll();
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        duplicateSelected();
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'c') {
-        e.preventDefault();
-        copySelected();
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'x') {
-        e.preventDefault();
-        cutSelected();
-        return;
-      }
-      if (cmd && e.key.toLowerCase() === 'v') {
-        e.preventDefault();
-        pasteClipboard();
-        return;
-      }
-      if (!cmd && !e.altKey && e.key.startsWith('Arrow')) {
-        const sel = useAppStore.getState().selectedEntityIds;
-        if (sel.length === 0) return;
-        e.preventDefault();
-        const state = useAppStore.getState();
-        // Arrow = one grid cell; Shift+Arrow = fine step (1/10 cell).
-        const step = e.shiftKey
-          ? state.project.settings.gridSize / 10
-          : state.project.settings.gridSize;
-        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
-        const dy = e.key === 'ArrowDown' ? -step : e.key === 'ArrowUp' ? step : 0;
-        translateEntities(sel, dx, dy);
-        return;
-      }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (useAppStore.getState().preview.type !== 'none') return;
-        const sel = useAppStore.getState().selectedEntityIds;
-        if (sel.length > 0) {
-          e.preventDefault();
-          removeEntities(sel);
-        }
-        return;
-      }
-      if (cmd) return;
-      const tool = toolForShortcut(e.key);
-      if (tool) {
-        setActiveTool(tool);
-        return;
-      }
-      switch (e.key.toLowerCase()) {
-        case 'g':
-          toggleGrid();
-          break;
-        case 's':
-          toggleSnap();
-          break;
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [setActiveTool, undo, redo, removeEntities, duplicateSelected, copySelected, cutSelected, pasteClipboard, translateEntities, selectAll, toggleGrid, toggleSnap, setShortcutsOpen]);
 
   return (
     <div className="app-shell">

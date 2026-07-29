@@ -1,40 +1,34 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import { COMMAND_SHORTCUTS, TOOL_DEFINITIONS } from '../../app/toolRegistry';
+import { useModalDismiss } from '../common/useModalDismiss';
 
 export function ShortcutModal() {
   const { t } = useTranslation();
   const open = useAppStore((s) => s.ui.shortcutsOpen);
   const setOpen = useAppStore((s) => s.setShortcutsOpen);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setOpen(false);
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    closeButtonRef.current?.focus();
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
-    };
-  }, [open, setOpen]);
+  useModalDismiss({
+    open,
+    onDismiss: () => setOpen(false),
+    containerRef: dialogRef,
+    initialFocusRef: closeButtonRef,
+  });
 
   if (!open) return null;
 
   return (
     <div className="modal-overlay" onClick={() => setOpen(false)}>
       <div
+        ref={dialogRef}
         className="modal shortcut-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcut-modal-title"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <header>

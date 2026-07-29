@@ -6,6 +6,7 @@ import type {
 } from './types';
 import {
   addCompensated,
+  CENTROID_CROSS_TOLERANCE,
   compensatedTotal,
   createCompensatedSum,
 } from './numeric';
@@ -63,7 +64,7 @@ export function ringCentroid(ring: Ring): Point {
   }
 
   const crossTotal = compensatedTotal(crossSum);
-  if (Math.abs(crossTotal) < 1e-18) {
+  if (Math.abs(crossTotal) < CENTROID_CROSS_TOLERANCE) {
     let sx = 0;
     let sy = 0;
     for (const p of ring) {

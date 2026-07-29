@@ -1,6 +1,6 @@
 import { copyEntities, pasteEntities } from '../clipboard';
-import { isEntityEffectivelyLocked } from '../layers';
-import { touchProject } from './helpers';
+import { unlockedEntityIds } from '../layers';
+import { resolveDrawingLayer, touchProject } from './helpers';
 import type { AppGet, AppSet, AppState } from './types';
 
 export function createClipboardActions(set: AppSet, get: AppGet): Pick<
@@ -10,9 +10,11 @@ export function createClipboardActions(set: AppSet, get: AppGet): Pick<
   return {
     copySelected: () => {
       const state = get();
-      const selected = new Set(state.selectedEntityIds);
+      const selected = new Set(
+        unlockedEntityIds(state.project, state.selectedEntityIds),
+      );
       const entities = state.project.entities.filter(
-        (entity) => selected.has(entity.id) && !isEntityEffectivelyLocked(state.project, entity),
+        (entity) => selected.has(entity.id),
       );
       if (entities.length === 0) return;
       set({ clipboard: copyEntities(entities) });
@@ -20,14 +22,18 @@ export function createClipboardActions(set: AppSet, get: AppGet): Pick<
 
     cutSelected: () => {
       const state = get();
-      const selected = new Set(state.selectedEntityIds);
+      const selected = new Set(
+        unlockedEntityIds(state.project, state.selectedEntityIds),
+      );
       const ids = state.project.entities
-        .filter(
-          (entity) => selected.has(entity.id) && !isEntityEffectivelyLocked(state.project, entity),
-        )
+        .filter((entity) => selected.has(entity.id))
         .map((entity) => entity.id);
       if (ids.length === 0) return;
-      state.copySelected();
+      set({
+        clipboard: copyEntities(
+          state.project.entities.filter((entity) => selected.has(entity.id)),
+        ),
+      });
       get().removeEntities(ids);
     },
 
@@ -38,12 +44,23 @@ export function createClipboardActions(set: AppSet, get: AppGet): Pick<
         state.clipboard,
         state.project.settings.gridSize * 0.5,
       );
-      const layerIds = new Set(state.project.layers.map((layer) => layer.id));
-      const activeLayerId = layerIds.has(state.ui.activeLayerId)
-        ? state.ui.activeLayerId
-        : state.project.layers[0].id;
+      const targetLayer = resolveDrawingLayer(
+        state.project,
+        state.ui.activeLayerId,
+      );
+      if (!targetLayer) {
+        state.setErrorMessage('errors.noDrawableLayer');
+        return;
+      }
+      const writableLayerIds = new Set(
+        state.project.layers
+          .filter((layer) => layer.visible && !layer.locked)
+          .map((layer) => layer.id),
+      );
       const entities = result.entities.map((entity) =>
-        layerIds.has(entity.layerId) ? entity : { ...entity, layerId: activeLayerId },
+        writableLayerIds.has(entity.layerId)
+          ? entity
+          : { ...entity, layerId: targetLayer.id },
       );
       state.pushHistory();
       set((current) => ({
