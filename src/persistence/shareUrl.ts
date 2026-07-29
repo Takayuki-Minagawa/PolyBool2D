@@ -1,5 +1,9 @@
 import type { Project } from '../app/projectTypes';
-import { deserializeProject, serializeProject } from './projectCodec';
+import {
+  decodeProject,
+  serializeProject,
+  type ProjectDecodeResult,
+} from './projectCodec';
 
 export const SHARE_HASH_PREFIX = '#pb2d=';
 export const MAX_SHARE_HASH_LENGTH = 8_000;
@@ -66,7 +70,9 @@ export async function encodeProjectForShare(project: Project): Promise<string> {
     : `${RAW_PREFIX}${bytesToBase64Url(source)}`;
 }
 
-export async function decodeSharedProject(payload: string): Promise<Project | null> {
+export async function decodeSharedProjectResult(
+  payload: string,
+): Promise<ProjectDecodeResult | null> {
   let encoded: string;
   let compressed: boolean;
   if (payload.startsWith(GZIP_PREFIX)) {
@@ -83,10 +89,16 @@ export async function decodeSharedProject(payload: string): Promise<Project | nu
   const decoded = compressed ? await gunzip(bytes) : bytes;
   if (!decoded || decoded.length > MAX_SHARED_PROJECT_BYTES) return null;
   try {
-    return deserializeProject(new TextDecoder('utf-8', { fatal: true }).decode(decoded));
+    return decodeProject(new TextDecoder('utf-8', { fatal: true }).decode(decoded));
   } catch {
     return null;
   }
+}
+
+/** Backwards-compatible nullable decoder. */
+export async function decodeSharedProject(payload: string): Promise<Project | null> {
+  const result = await decodeSharedProjectResult(payload);
+  return result?.ok ? result.project : null;
 }
 
 export async function encodeProjectToShareHash(
@@ -101,9 +113,16 @@ export async function encodeProjectToShareHash(
   }
 }
 
-export async function decodeProjectFromShareHash(hash: string): Promise<Project | null> {
+export async function decodeProjectFromShareHashResult(
+  hash: string,
+): Promise<ProjectDecodeResult | null> {
   if (hash.length > MAX_SHARE_HASH_LENGTH || !hash.startsWith(SHARE_HASH_PREFIX)) return null;
-  return decodeSharedProject(hash.slice(SHARE_HASH_PREFIX.length));
+  return decodeSharedProjectResult(hash.slice(SHARE_HASH_PREFIX.length));
+}
+
+export async function decodeProjectFromShareHash(hash: string): Promise<Project | null> {
+  const result = await decodeProjectFromShareHashResult(hash);
+  return result?.ok ? result.project : null;
 }
 
 export async function buildShareUrl(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject, createLinearEntity, createPolygonEntity } from '../app/projectFactory';
+import type { Project } from '../app/projectTypes';
 import { rectangleToRing } from '../geometry/circle';
 import { polygonArea } from '../geometry/area';
 import { buildDxf } from '../persistence/dxfExport';
@@ -8,7 +9,9 @@ import { buildSvg } from '../persistence/svgExport';
 import {
   buildShareUrl,
   decodeProjectFromShareHash,
+  decodeProjectFromShareHashResult,
   decodeSharedProject,
+  decodeSharedProjectResult,
   encodeProjectForShare,
   encodeProjectToShareHash,
   MAX_SHARED_PROJECT_BYTES,
@@ -163,6 +166,26 @@ describe('share URL codec', () => {
   it('rejects invalid payloads', async () => {
     expect(await decodeSharedProject('gz.not+base64')).toBeNull();
     expect(await decodeProjectFromShareHash('#other=value')).toBeNull();
+  });
+
+  it('exposes recoverable project diagnostics from payloads and hashes', async () => {
+    const project = createEmptyProject();
+    const recoverable = {
+      ...project,
+      entities: [{ id: 'broken', type: 'polygon' }],
+    } as unknown as Project;
+    const payload = await encodeProjectForShare(recoverable);
+    const payloadResult = await decodeSharedProjectResult(payload);
+
+    expect(payloadResult?.ok).toBe(true);
+    if (!payloadResult?.ok) return;
+    expect(payloadResult.discardedItems).toEqual([
+      { kind: 'entity', index: 0, reason: 'invalid-polygon' },
+    ]);
+
+    const hash = `#pb2d=${payload}`;
+    const hashResult = await decodeProjectFromShareHashResult(hash);
+    expect(hashResult?.ok && hashResult.discardedItemCount).toBe(1);
   });
 
   it('rejects oversized source data even when it would compress to a short hash', async () => {

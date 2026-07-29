@@ -11,6 +11,9 @@ export type {
   ProjectDecodeFailureReason,
   ProjectDecodeResult,
   ProjectDecodeSuccess,
+  ProjectConstraintDecodeFailureReason,
+  ProjectDiscardedItem,
   ProjectEntityDecodeFailureReason,
+  ProjectGroupDecodeFailureReason,
   ProjectMigration,
 } from './projectCodec';

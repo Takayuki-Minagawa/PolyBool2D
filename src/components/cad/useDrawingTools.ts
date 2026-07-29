@@ -1,5 +1,6 @@
 import { useRef, type MutableRefObject } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import type {
   DrawingPreview,
@@ -49,6 +50,7 @@ export function useDrawingTools({
   setPreview,
   clearSelection,
 }: UseDrawingToolsOptions) {
+  const { t } = useTranslation();
   const rectangleStartRef = useRef<Point | null>(null);
   const circleStartRef = useRef<Point | null>(null);
   const ellipseStartRef = useRef<Point | null>(null);
@@ -355,7 +357,7 @@ export function useDrawingTools({
       return true;
     }
     if (tool === 'annotation') {
-      const label = window.prompt('Annotation text', '');
+      const label = window.prompt(t('drawing.annotationPrompt'), '');
       if (label?.trim()) {
         const created = state.addLinearEntity([point], 'annotation', {
           label: label.trim(),

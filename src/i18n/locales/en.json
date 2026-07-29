@@ -161,6 +161,10 @@
     ,"workspaceExtras": "Groups, parts & constraints"
     ,"groupSelection": "Group selection"
     ,"ungroupSelection": "Ungroup selection"
+    ,"lockGroup": "Lock group “{{name}}”"
+    ,"unlockGroup": "Unlock group “{{name}}”"
+    ,"hideGroup": "Hide group “{{name}}”"
+    ,"showGroup": "Show group “{{name}}”"
     ,"saveTemplate": "Save selection as part"
     ,"insertTemplate": "Insert latest part"
     ,"constraints": "Parametric constraints"
@@ -243,6 +247,30 @@
       "areaMismatch": "Total area before/after split mismatch."
     },
     "importInvalid": "Invalid JSON file.",
+    "projectDecodeFailed": "The project could not be opened ({{reason}}).",
+    "projectRecovered": "Opened the recoverable project after discarding {{count}} damaged item(s): {{reasons}}. The original saved bytes will be kept until you edit the project.",
+    "projectDecodeReasons": {
+      "invalid-json": "invalid JSON",
+      "invalid-root": "invalid project root",
+      "missing-version": "missing schema version",
+      "unsupported-version": "unsupported schema version",
+      "migration-failed": "schema migration failed",
+      "invalid-project-metadata": "invalid project metadata",
+      "invalid-layers": "invalid layers",
+      "invalid-entities": "invalid entity list",
+      "invalid-entity": "invalid entity",
+      "invalid-polygon": "invalid polygon",
+      "invalid-linear-entity": "invalid line, dimension, or annotation",
+      "unsupported-entity-type": "unsupported entity type",
+      "invalid-group-collection": "invalid group list",
+      "invalid-group": "invalid group",
+      "duplicate-group-id": "duplicate group ID",
+      "missing-entity-reference": "group references a missing entity",
+      "invalid-constraint-collection": "invalid constraint list",
+      "invalid-constraint": "invalid constraint",
+      "duplicate-constraint-id": "duplicate constraint ID",
+      "missing-point-reference": "constraint references a missing point"
+    },
     "svgImportInvalid": "No supported shapes were found in the SVG.",
     "dxfImportInvalid": "No supported shapes were found in the DXF.",
     "geoJsonImportInvalid": "No supported shapes were found in the GeoJSON.",
@@ -294,7 +322,10 @@
       "polygon": "Area",
       "guide": "Guide",
       "polyline": "Line",
-      "arc": "Arc"
+      "arc": "Arc",
+      "linear-dimension": "Linear dimension",
+      "angular-dimension": "Angular dimension",
+      "annotation": "Annotation"
     }
   },
   "projects": {
@@ -322,7 +353,8 @@
   },
   "drawing": {
     "length": "Length",
-    "enterToApply": "Enter to apply"
+    "enterToApply": "Enter to apply",
+    "annotationPrompt": "Annotation text"
   },
   "manual": {
     "title": "User Manual",

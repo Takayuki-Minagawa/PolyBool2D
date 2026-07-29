@@ -1,5 +1,6 @@
 import type { Unit } from '../app/projectTypes';
 import { circleToRing } from '../geometry/circle';
+import { pointsAlmostEqual } from '../geometry/numeric';
 import { normalizePolygon } from '../geometry/normalize';
 import { nestRingsAsPolygons } from '../geometry/ringNesting';
 import type { Point, PolygonGeometry, Ring } from '../geometry/types';
@@ -12,6 +13,12 @@ type DxfPair = {
 type DxfGroup = {
   type: string;
   pairs: DxfPair[];
+};
+
+type DxfVertex = {
+  point: Point;
+  /** Arc bulge from this vertex to the next vertex. */
+  bulge: number;
 };
 
 export type DxfSourceEntity =
@@ -33,6 +40,8 @@ export type DxfImportOptions = {
   curveSegments?: number;
   maxEntities?: number;
   maxVerticesPerEntity?: number;
+  /** Convert parsed coordinates from $INSUNITS into this project unit. */
+  targetUnit?: Unit;
 };
 
 export type DxfImportResult = {
@@ -46,6 +55,12 @@ const INSUNITS: Partial<Record<number, Unit>> = {
   4: 'mm',
   5: 'cm',
   6: 'm',
+};
+
+const MILLIMETRES_PER_UNIT: Record<Unit, number> = {
+  mm: 1,
+  cm: 10,
+  m: 1_000,
 };
 
 const DEFAULT_MAX_ENTITIES = 20_000;
@@ -117,44 +132,148 @@ function pointFromCodes(
   return x === null || y === null ? null : { x, y };
 }
 
-function verticesFromPolylineGroup(
+function addWarning(warnings: string[], warning: string): void {
+  if (!warnings.includes(warning)) warnings.push(warning);
+}
+
+function verticesFromLwPolylineGroup(
   group: DxfGroup,
   maxVertices: number,
   warnings: string[],
-): Point[] {
-  const xs = group.pairs.filter((pair) => pair.code === 10).map((pair) => Number(pair.value));
-  const ys = group.pairs.filter((pair) => pair.code === 20).map((pair) => Number(pair.value));
-  if (xs.length !== ys.length) {
-    warnings.push('invalid-polyline-coordinate-pairs');
-    return [];
-  }
-  if (xs.length > maxVertices) warnings.push('vertex-limit-exceeded');
-  const count = Math.min(xs.length, maxVertices);
-  const points: Point[] = [];
-  for (let i = 0; i < count; i += 1) {
-    if (!Number.isFinite(xs[i]) || !Number.isFinite(ys[i])) {
-      warnings.push('invalid-coordinate');
-      return [];
+): DxfVertex[] {
+  const vertices: DxfVertex[] = [];
+  let current: { x: number; y: number | null; bulge: number } | null = null;
+
+  function finishVertex(): void {
+    if (!current) return;
+    if (
+      !Number.isFinite(current.x) ||
+      current.y === null ||
+      !Number.isFinite(current.y) ||
+      !Number.isFinite(current.bulge)
+    ) {
+      addWarning(warnings, 'invalid-coordinate');
+    } else if (vertices.length < maxVertices) {
+      vertices.push({
+        point: { x: current.x, y: current.y },
+        bulge: current.bulge,
+      });
+    } else {
+      addWarning(warnings, 'vertex-limit-exceeded');
     }
-    points.push({ x: xs[i], y: ys[i] });
+    current = null;
   }
-  return points;
+
+  for (const pair of group.pairs) {
+    if (pair.code === 10) {
+      finishVertex();
+      current = { x: Number(pair.value), y: null, bulge: 0 };
+    } else if (current && pair.code === 20 && current.y === null) {
+      current.y = Number(pair.value);
+    } else if (current && pair.code === 42) {
+      current.bulge = Number(pair.value);
+    }
+  }
+  finishVertex();
+  return vertices;
 }
 
-function hasBulge(group: DxfGroup): boolean {
-  return group.pairs.some(
-    (pair) => pair.code === 42 && Number.isFinite(Number(pair.value)) && Number(pair.value) !== 0,
-  );
+function tessellatePolyline(
+  sourceVertices: DxfVertex[],
+  declaredClosed: boolean,
+  curveSegments: number,
+  maxVertices: number,
+  warnings: string[],
+): { points: Point[]; closed: boolean } {
+  let vertices = sourceVertices;
+  let closed = declaredClosed;
+  if (
+    vertices.length > 1 &&
+    pointsAlmostEqual(vertices[0].point, vertices[vertices.length - 1].point)
+  ) {
+    vertices = vertices.slice(0, -1);
+    closed = true;
+  }
+  if (vertices.length === 0) return { points: [], closed };
+
+  const points: Point[] = [vertices[0].point];
+  let hitLimit = false;
+  const append = (point: Point): void => {
+    if (hitLimit || pointsAlmostEqual(points[points.length - 1], point)) return;
+    if (points.length >= maxVertices) {
+      hitLimit = true;
+      addWarning(warnings, 'vertex-limit-exceeded');
+      return;
+    }
+    points.push(point);
+  };
+  const segmentCount = closed ? vertices.length : vertices.length - 1;
+
+  for (let index = 0; index < segmentCount && !hitLimit; index += 1) {
+    const vertex = vertices[index];
+    const next = vertices[(index + 1) % vertices.length];
+    const isClosingEndpoint = closed && index === segmentCount - 1;
+    const bulge = vertex.bulge;
+    const dx = next.point.x - vertex.point.x;
+    const dy = next.point.y - vertex.point.y;
+    const chord = Math.hypot(dx, dy);
+    if (chord === 0) continue;
+
+    const sweep = 4 * Math.atan(bulge);
+    if (!Number.isFinite(sweep) || Math.abs(sweep) < 1e-12) {
+      if (!isClosingEndpoint) append(next.point);
+      continue;
+    }
+
+    const centerOffset = chord * (1 - bulge * bulge) / (4 * bulge);
+    const center = {
+      x: (vertex.point.x + next.point.x) / 2 - (dy / chord) * centerOffset,
+      y: (vertex.point.y + next.point.y) / 2 + (dx / chord) * centerOffset,
+    };
+    const startAngle = Math.atan2(
+      vertex.point.y - center.y,
+      vertex.point.x - center.x,
+    );
+    const radius = Math.hypot(
+      vertex.point.x - center.x,
+      vertex.point.y - center.y,
+    );
+    const samples = Math.max(
+      1,
+      Math.ceil(Math.abs(sweep) / (Math.PI * 2) * curveSegments),
+    );
+    for (let sample = 1; sample <= samples && !hitLimit; sample += 1) {
+      if (sample === samples) {
+        if (!isClosingEndpoint) append(next.point);
+        continue;
+      }
+      const angle = startAngle + sweep * (sample / samples);
+      append({
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+      });
+    }
+  }
+  return { points, closed };
 }
 
 function addPolyline(
   result: DxfImportResult,
   closedRings: Map<string, Ring[]>,
-  points: Point[],
-  closed: boolean,
+  vertices: DxfVertex[],
+  declaredClosed: boolean,
   layer: string,
   source: 'LWPOLYLINE' | 'POLYLINE',
+  curveSegments: number,
+  maxVertices: number,
 ): void {
+  const { points, closed } = tessellatePolyline(
+    vertices,
+    declaredClosed,
+    curveSegments,
+    maxVertices,
+    result.warnings,
+  );
   if (closed) {
     const polygon = normalizePolygon({ outer: points, holes: [] });
     if (polygon) {
@@ -222,10 +341,14 @@ function addArc(
     return;
   }
   const start = (startDeg * Math.PI) / 180;
-  let sweep = (((endDeg - startDeg) % 360) + 360) % 360;
+  const rawSweep = endDeg - startDeg;
+  let sweep = ((rawSweep % 360) + 360) % 360;
   if (sweep === 0) {
-    result.warnings.push('invalid-arc');
-    return;
+    if (Math.abs(rawSweep) >= 360 - 1e-9) sweep = 360;
+    else {
+      result.warnings.push('invalid-arc');
+      return;
+    }
   }
   const segmentCount = Math.max(1, Math.ceil((sweep / 360) * curveSegments));
   sweep = (sweep * Math.PI) / 180;
@@ -246,7 +369,7 @@ function addArc(
   });
 }
 
-function readHeaderUnit(groups: DxfGroup[]): Unit | null {
+function readHeaderUnit(groups: DxfGroup[], warnings: string[]): Unit | null {
   for (const group of groups) {
     if (
       group.type !== 'SECTION' ||
@@ -256,11 +379,33 @@ function readHeaderUnit(groups: DxfGroup[]): Unit | null {
       if (group.pairs[i].code !== 9 || group.pairs[i].value !== '$INSUNITS') continue;
       const value = Number(group.pairs[i + 1].value);
       if (group.pairs[i + 1].code === 70 && Number.isInteger(value)) {
-        return INSUNITS[value] ?? null;
+        const unit = INSUNITS[value];
+        if (!unit) addWarning(warnings, `unsupported-unit:${value}`);
+        return unit ?? null;
       }
     }
   }
   return null;
+}
+
+function scaleImportResult(
+  result: DxfImportResult,
+  targetUnit: Unit | undefined,
+): void {
+  if (!result.unit || !targetUnit || result.unit === targetUnit) return;
+  const scale = MILLIMETRES_PER_UNIT[result.unit] / MILLIMETRES_PER_UNIT[targetUnit];
+  const scalePoint = (point: Point): Point => ({
+    x: point.x * scale,
+    y: point.y * scale,
+  });
+  result.polygons = result.polygons.map((polygon) => ({
+    outer: polygon.outer.map(scalePoint),
+    holes: polygon.holes.map((hole) => hole.map(scalePoint)),
+  }));
+  result.polylines = result.polylines.map((polyline) => ({
+    ...polyline,
+    points: polyline.points.map(scalePoint),
+  }));
 }
 
 /**
@@ -288,7 +433,7 @@ export function importDxfString(
     result.warnings.push('invalid-dxf');
     return result;
   }
-  result.unit = readHeaderUnit(groups);
+  result.unit = readHeaderUnit(groups, result.warnings);
 
   const curveSegments = limit(options.curveSegments, 64, 4096);
   const maxEntities = limit(options.maxEntities, DEFAULT_MAX_ENTITIES, 100_000);
@@ -312,43 +457,49 @@ export function importDxfString(
       continue;
     }
     if (!inEntities) continue;
-    if (!['LWPOLYLINE', 'POLYLINE', 'LINE', 'ARC', 'CIRCLE'].includes(group.type)) {
-      continue;
-    }
     if (entityCount >= maxEntities) {
       result.warnings.push('entity-limit-exceeded');
       break;
     }
     entityCount += 1;
+    if (!['LWPOLYLINE', 'POLYLINE', 'LINE', 'ARC', 'CIRCLE'].includes(group.type)) {
+      addWarning(result.warnings, `unsupported-entity:${group.type}`);
+      continue;
+    }
 
     if (group.type === 'LWPOLYLINE') {
-      if (hasBulge(group)) result.warnings.push('unsupported-bulge');
-      const points = verticesFromPolylineGroup(group, maxVertices, result.warnings);
+      const vertices = verticesFromLwPolylineGroup(
+        group,
+        maxVertices,
+        result.warnings,
+      );
       addPolyline(
         result,
         closedRings,
-        points,
+        vertices,
         (integer(group, 70) & 1) !== 0,
         layerName(group),
         'LWPOLYLINE',
+        curveSegments,
+        maxVertices,
       );
       continue;
     }
 
     if (group.type === 'POLYLINE') {
-      const points: Point[] = [];
+      const vertices: DxfVertex[] = [];
       let cursor = index + 1;
       for (; cursor < groups.length; cursor += 1) {
         const child = groups[cursor];
         if (child.type === 'SEQEND') break;
         if (child.type !== 'VERTEX') break;
-        if (hasBulge(child)) result.warnings.push('unsupported-bulge');
-        if (points.length >= maxVertices) {
-          result.warnings.push('vertex-limit-exceeded');
+        if (vertices.length >= maxVertices) {
+          addWarning(result.warnings, 'vertex-limit-exceeded');
           continue;
         }
         const point = pointFromCodes(child, 10, 20);
-        if (point) points.push(point);
+        const bulge = number(child, 42) ?? 0;
+        if (point && Number.isFinite(bulge)) vertices.push({ point, bulge });
         else result.warnings.push('invalid-coordinate');
       }
       index = cursor < groups.length && groups[cursor].type === 'SEQEND'
@@ -357,10 +508,12 @@ export function importDxfString(
       addPolyline(
         result,
         closedRings,
-        points,
+        vertices,
         (integer(group, 70) & 1) !== 0,
         layerName(group),
         'POLYLINE',
+        curveSegments,
+        maxVertices,
       );
       continue;
     }
@@ -376,6 +529,7 @@ export function importDxfString(
   for (const rings of closedRings.values()) {
     result.polygons.push(...nestRingsAsPolygons(rings));
   }
+  scaleImportResult(result, options.targetUnit);
   return result;
 }
 

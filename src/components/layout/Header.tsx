@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
+import { projectDecodeFeedback } from '../../app/projectDecodeFeedback';
 import {
   exportProjectFile,
-  importProjectFile,
+  importProjectFileResult,
 } from '../../persistence/projectFileIo';
 import { exportSvgFile } from '../../persistence/svgExport';
 import { exportAreaCsvFile, exportVertexCsvFile } from '../../persistence/csvExport';
@@ -37,7 +38,7 @@ export function Header() {
   const reset = useAppStore((s) => s.resetProject);
   const loadProject = useAppStore((s) => s.loadProject);
   const importPolygonGeometries = useAppStore((s) => s.importPolygonGeometries);
-  const addLinearEntity = useAppStore((s) => s.addLinearEntity);
+  const importDrawingGeometries = useAppStore((s) => s.importDrawingGeometries);
   const setErrorMessage = useAppStore((s) => s.setErrorMessage);
   const setStatusMessage = useAppStore((s) => s.setStatusMessage);
   const theme = useAppStore((s) => s.ui.theme);
@@ -89,14 +90,16 @@ export function Header() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const p = await importProjectFile(file);
-    if (!p) {
-      reportError('errors.importInvalid');
+    const result = await importProjectFileResult(file);
+    const feedback = projectDecodeFeedback(result, t);
+    if (!result.ok) {
+      reportError(feedback ?? 'errors.importInvalid');
       return;
     }
     if (!saveCurrentProject()) return;
-    loadProject(p);
-    reportSuccess(t('status.jsonImported', { name: p.name }));
+    loadProject(result.project);
+    if (feedback) reportError(feedback);
+    else reportSuccess(t('status.jsonImported', { name: result.project.name }));
   }
 
   async function onSvgImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -123,18 +126,18 @@ export function Header() {
     if (!file) return;
     const result = await importDxfFile(file, {
       curveSegments: project.settings.circleSegments,
+      targetUnit: project.unit,
     });
-    const polygonCount = importPolygonGeometries(result.polygons).length;
-    let linearCount = 0;
-    for (const item of result.polylines) {
-      if (addLinearEntity(item.points, item.kind)) linearCount += 1;
-    }
-    if (polygonCount + linearCount === 0) {
+    const imported = importDrawingGeometries(
+      result.polygons,
+      result.polylines,
+    ).length;
+    if (imported === 0) {
       reportError('errors.dxfImportInvalid');
       return;
     }
     reportSuccess(t('status.dxfImported', {
-      count: polygonCount + linearCount,
+      count: imported,
       warnings: result.warnings.length,
     }));
   }

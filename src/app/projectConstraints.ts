@@ -91,6 +91,33 @@ export function projectConstraintPoints(project: Project): Record<string, Point>
   return result;
 }
 
+export function projectConstraintPointIds(
+  constraint: ParametricConstraint,
+): string[] {
+  switch (constraint.kind) {
+    case 'length':
+    case 'horizontal':
+    case 'vertical':
+      return [constraint.a, constraint.b];
+    case 'angle':
+      return [constraint.a, constraint.vertex, constraint.b];
+    case 'parallel':
+    case 'perpendicular':
+      return [constraint.a1, constraint.a2, constraint.b1, constraint.b2];
+  }
+}
+
+/** Remove constraints whose entity, ring, hole, or point index no longer exists. */
+export function sanitizeProjectConstraints(
+  project: Project,
+  constraints: readonly ParametricConstraint[] = project.constraints ?? [],
+): ParametricConstraint[] {
+  const validPointIds = new Set(Object.keys(projectConstraintPoints(project)));
+  return constraints.filter((constraint) =>
+    projectConstraintPointIds(constraint).every((id) => validPointIds.has(id)),
+  );
+}
+
 function updateEntity(
   entity: Entity,
   solved: Readonly<Record<string, Point>>,

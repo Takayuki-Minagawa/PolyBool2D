@@ -95,7 +95,9 @@ export function PropertyPanel() {
             <h2>{t('panel.linearEntity')}</h2>
             <div className="row">
               <span>{selectedEntity.name}</span>
-              <span className="muted-text">{selectedEntity.kind}</span>
+              <span className="muted-text">
+                {t(`outliner.types.${selectedEntity.kind}`)}
+              </span>
             </div>
             <button
               onClick={() => removeEntities([selectedEntity.id])}

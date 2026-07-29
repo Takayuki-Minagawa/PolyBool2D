@@ -292,6 +292,30 @@ export async function deleteUnderlayImage(id: string): Promise<void> {
   }
 }
 
+/** Remove every underlay owned by a deleted project. */
+export async function deleteUnderlaysForProject(projectId: string): Promise<void> {
+  if (!projectId) return;
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(STORE_NAME, 'readwrite');
+    const completion = transactionDone(transaction);
+    const store = transaction.objectStore(STORE_NAME);
+    let keys: IDBValidKey[];
+    try {
+      keys = await requestResult(
+        store.index('projectId').getAllKeys(IDBKeyRange.only(projectId)),
+      );
+    } catch (error) {
+      await completion.catch(() => undefined);
+      throw error;
+    }
+    for (const key of keys) store.delete(key);
+    await completion;
+  } finally {
+    database.close();
+  }
+}
+
 export const UNDERLAYS_CHANGED_EVENT = 'polybool2d:underlays-changed';
 
 export function notifyUnderlaysChanged(projectId: string): void {

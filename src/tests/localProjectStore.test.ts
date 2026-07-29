@@ -12,6 +12,7 @@ import {
   MAX_PROJECT_BACKUPS,
   renameLocalProject,
   restoreProjectBackup,
+  restoreProjectBackupResult,
   saveProjectToLocal,
   setActiveProjectId,
 } from '../persistence/localProjectStore';
@@ -36,6 +37,23 @@ describe('multi-project local storage', () => {
     expect(getActiveProjectId()).toBe(newer.id);
     expect(setActiveProjectId(older.id)).toBe(true);
     expect(loadProjectFromLocal()?.id).toBe(older.id);
+  });
+
+  it('keeps an unreadable project visible and deletable when the index is missing', () => {
+    const id = 'fatal-project';
+    const key = `pb2d.project.${encodeURIComponent(id)}`;
+    localStorage.setItem(key, '{broken-json');
+    localStorage.setItem('pb2d.projects.index', '{broken-index');
+
+    expect(listLocalProjects()).toEqual([
+      expect.objectContaining({
+        id,
+        name: `Unreadable project (${id})`,
+      }),
+    ]);
+    expect(loadProjectById(id)).toBeNull();
+    expect(deleteLocalProject(id)).toBe(true);
+    expect(localStorage.getItem(key)).toBeNull();
   });
 
   it('migrates the legacy singleton key exactly once', () => {
@@ -104,6 +122,35 @@ describe('local project backups', () => {
     saveProjectToLocal(value);
     saveProjectToLocal(value);
     expect(listProjectBackups(value.id)).toEqual([]);
+  });
+
+  it('lists and reports recovery diagnostics for a damaged backup', () => {
+    const value = project('Current', '2026-01-02T00:00:00.000Z');
+    expect(saveProjectToLocal(value)).toBe(true);
+    const raw = JSON.parse(serializeProject(value));
+    raw.entities.push({ id: 'broken', type: 'polygon' });
+    localStorage.setItem(
+      `pb2d.backups.${encodeURIComponent(value.id)}`,
+      JSON.stringify([{
+        id: 'damaged-backup',
+        savedAt: '2026-01-03T00:00:00.000Z',
+        projectJson: JSON.stringify(raw),
+      }]),
+    );
+
+    expect(listProjectBackups(value.id)).toEqual([
+      expect.objectContaining({
+        id: 'damaged-backup',
+        discardedItemCount: 1,
+        discardedReasons: ['invalid-polygon'],
+      }),
+    ]);
+    const restored = restoreProjectBackupResult(value.id, 'damaged-backup');
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    expect(restored.decodeResult.discardedItems).toEqual([
+      { kind: 'entity', index: 0, reason: 'invalid-polygon' },
+    ]);
   });
 
   it('keeps saving current work when its safety backup cannot be saved', () => {

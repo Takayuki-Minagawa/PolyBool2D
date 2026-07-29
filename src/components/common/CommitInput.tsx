@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type CommitInputProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
@@ -17,6 +17,7 @@ export function CommitInput({
   ...inputProps
 }: CommitInputProps) {
   const [draft, setDraft] = useState(value);
+  const skipNextBlurCommitRef = useRef(false);
 
   useEffect(() => {
     setDraft(value);
@@ -40,7 +41,13 @@ export function CommitInput({
       {...inputProps}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
+      onBlur={() => {
+        if (skipNextBlurCommitRef.current) {
+          skipNextBlurCommitRef.current = false;
+          return;
+        }
+        commit();
+      }}
       onKeyDown={(event) => {
         onKeyDown?.(event);
         if (event.defaultPrevented) return;
@@ -48,6 +55,7 @@ export function CommitInput({
         if (event.key === 'Enter') {
           event.currentTarget.blur();
         } else if (event.key === 'Escape') {
+          skipNextBlurCommitRef.current = true;
           reset();
           event.currentTarget.blur();
         }

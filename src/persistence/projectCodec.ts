@@ -7,10 +7,10 @@ import type {
   ProjectSettings,
 } from '../app/projectTypes';
 import {
-  APP_VERSION,
   DEFAULT_LINE_STYLE,
   DEFAULT_SETTINGS,
   DEFAULT_STYLE,
+  PROJECT_SCHEMA_VERSION,
 } from '../app/projectTypes';
 import type { EntityGroup } from '../app/groups';
 import type { ParametricConstraint } from '../geometry/constraints';
@@ -48,18 +48,21 @@ export const MIGRATIONS: Readonly<Record<string, ProjectMigration>> = {
     },
   },
   '0.2.0': {
-    toVersion: APP_VERSION,
+    toVersion: '0.3.0',
     migrate: (project) => ({
       ...project,
-      version: APP_VERSION,
+      version: '0.3.0',
       groups: Array.isArray(project.groups) ? project.groups : [],
       constraints: Array.isArray(project.constraints) ? project.constraints : [],
     }),
   },
 };
 
-/** Versions for which a complete migration route to APP_VERSION is known. */
-export const SUPPORTED_VERSIONS = new Set([...Object.keys(MIGRATIONS), APP_VERSION]);
+/** Versions for which a complete migration route to the current schema is known. */
+export const SUPPORTED_VERSIONS = new Set([
+  ...Object.keys(MIGRATIONS),
+  PROJECT_SCHEMA_VERSION,
+]);
 
 export type ProjectDecodeFailureReason =
   | 'invalid-json'
@@ -81,6 +84,18 @@ export type ProjectDecodeSuccess = {
     index: number;
     reason: ProjectEntityDecodeFailureReason;
   }>;
+  discardedGroupCount: number;
+  discardedGroups: ReadonlyArray<{
+    index: number;
+    reason: ProjectGroupDecodeFailureReason;
+  }>;
+  discardedConstraintCount: number;
+  discardedConstraints: ReadonlyArray<{
+    index: number;
+    reason: ProjectConstraintDecodeFailureReason;
+  }>;
+  discardedItemCount: number;
+  discardedItems: ReadonlyArray<ProjectDiscardedItem>;
 };
 
 export type ProjectEntityDecodeFailureReason =
@@ -88,6 +103,35 @@ export type ProjectEntityDecodeFailureReason =
   | 'invalid-polygon'
   | 'invalid-linear-entity'
   | 'unsupported-entity-type';
+
+export type ProjectGroupDecodeFailureReason =
+  | 'invalid-group-collection'
+  | 'invalid-group'
+  | 'duplicate-group-id'
+  | 'missing-entity-reference';
+
+export type ProjectConstraintDecodeFailureReason =
+  | 'invalid-constraint-collection'
+  | 'invalid-constraint'
+  | 'duplicate-constraint-id'
+  | 'missing-point-reference';
+
+export type ProjectDiscardedItem =
+  | {
+      kind: 'entity';
+      index: number;
+      reason: ProjectEntityDecodeFailureReason;
+    }
+  | {
+      kind: 'group';
+      index: number;
+      reason: ProjectGroupDecodeFailureReason;
+    }
+  | {
+      kind: 'constraint';
+      index: number;
+      reason: ProjectConstraintDecodeFailureReason;
+    };
 
 export type ProjectDecodeFailure = {
   ok: false;
@@ -185,37 +229,65 @@ function parseSettings(v: unknown): ProjectSettings {
 function parseGroups(
   value: unknown,
   validEntityIds: ReadonlySet<string>,
-): EntityGroup[] {
-  if (!Array.isArray(value)) return [];
+): {
+  values: EntityGroup[];
+  discarded: Array<{ index: number; reason: ProjectGroupDecodeFailureReason }>;
+} {
+  if (value === undefined) return { values: [], discarded: [] };
+  if (!Array.isArray(value)) {
+    return {
+      values: [],
+      discarded: [{ index: -1, reason: 'invalid-group-collection' }],
+    };
+  }
   const seen = new Set<string>();
-  const groups: EntityGroup[] = [];
-  for (const candidate of value) {
+  const values: EntityGroup[] = [];
+  const discarded: Array<{
+    index: number;
+    reason: ProjectGroupDecodeFailureReason;
+  }> = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const candidate = value[index];
     if (
       !isObject(candidate) ||
       typeof candidate.id !== 'string' ||
-      seen.has(candidate.id) ||
+      candidate.id.length === 0 ||
+      typeof candidate.name !== 'string' ||
       !Array.isArray(candidate.entityIds)
     ) {
+      discarded.push({ index, reason: 'invalid-group' });
       continue;
     }
-    const entityIds = [...new Set(
-      candidate.entityIds.filter(
-        (id): id is string => typeof id === 'string' && validEntityIds.has(id),
-      ),
-    )];
-    if (entityIds.length < 2) continue;
+    if (seen.has(candidate.id)) {
+      discarded.push({ index, reason: 'duplicate-group-id' });
+      continue;
+    }
     seen.add(candidate.id);
-    groups.push({
+    if (
+      candidate.entityIds.length < 2 ||
+      candidate.entityIds.some((id) => typeof id !== 'string')
+    ) {
+      discarded.push({ index, reason: 'invalid-group' });
+      continue;
+    }
+    const entityIds = [...new Set(candidate.entityIds as string[])];
+    if (entityIds.length < 2) {
+      discarded.push({ index, reason: 'invalid-group' });
+      continue;
+    }
+    if (entityIds.some((id) => !validEntityIds.has(id))) {
+      discarded.push({ index, reason: 'missing-entity-reference' });
+      continue;
+    }
+    values.push({
       id: candidate.id,
-      name: typeof candidate.name === 'string' && candidate.name.trim()
-        ? candidate.name
-        : 'Group',
+      name: candidate.name.trim() || 'Group',
       entityIds,
       locked: candidate.locked === true,
       visible: candidate.visible !== false,
     });
   }
-  return groups;
+  return { values, discarded };
 }
 
 function constraintId(value: unknown): string | null {
@@ -262,17 +334,83 @@ function parseConstraint(value: unknown): ParametricConstraint | null {
   return null;
 }
 
-function parseConstraints(value: unknown): ParametricConstraint[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const constraints: ParametricConstraint[] = [];
-  for (const candidate of value) {
-    const constraint = parseConstraint(candidate);
-    if (!constraint || seen.has(constraint.id)) continue;
-    seen.add(constraint.id);
-    constraints.push(constraint);
+function constraintPointIds(constraint: ParametricConstraint): string[] {
+  switch (constraint.kind) {
+    case 'length':
+    case 'horizontal':
+    case 'vertical':
+      return [constraint.a, constraint.b];
+    case 'angle':
+      return [constraint.a, constraint.vertex, constraint.b];
+    case 'parallel':
+    case 'perpendicular':
+      return [constraint.a1, constraint.a2, constraint.b1, constraint.b2];
   }
-  return constraints;
+}
+
+function entityPointIds(entities: readonly Entity[]): Set<string> {
+  const ids = new Set<string>();
+  for (const entity of entities) {
+    if (entity.type === 'polygon') {
+      entity.geometry.outer.forEach((_, pointIndex) => {
+        ids.add(`${entity.id}|outer|${pointIndex}`);
+      });
+      entity.geometry.holes.forEach((hole, holeIndex) => {
+        hole.forEach((_, pointIndex) => {
+          ids.add(`${entity.id}|hole|${holeIndex}|${pointIndex}`);
+        });
+      });
+    } else {
+      entity.points.forEach((_, pointIndex) => {
+        ids.add(`${entity.id}|linear|${pointIndex}`);
+      });
+    }
+  }
+  return ids;
+}
+
+function parseConstraints(
+  value: unknown,
+  validPointIds: ReadonlySet<string>,
+): {
+  values: ParametricConstraint[];
+  discarded: Array<{
+    index: number;
+    reason: ProjectConstraintDecodeFailureReason;
+  }>;
+} {
+  if (value === undefined) return { values: [], discarded: [] };
+  if (!Array.isArray(value)) {
+    return {
+      values: [],
+      discarded: [{ index: -1, reason: 'invalid-constraint-collection' }],
+    };
+  }
+  const seen = new Set<string>();
+  const values: ParametricConstraint[] = [];
+  const discarded: Array<{
+    index: number;
+    reason: ProjectConstraintDecodeFailureReason;
+  }> = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const candidate = value[index];
+    const constraint = parseConstraint(candidate);
+    if (!constraint) {
+      discarded.push({ index, reason: 'invalid-constraint' });
+      continue;
+    }
+    if (seen.has(constraint.id)) {
+      discarded.push({ index, reason: 'duplicate-constraint-id' });
+      continue;
+    }
+    seen.add(constraint.id);
+    if (constraintPointIds(constraint).some((id) => !validPointIds.has(id))) {
+      discarded.push({ index, reason: 'missing-point-reference' });
+      continue;
+    }
+    values.push(constraint);
+  }
+  return { values, discarded };
 }
 
 function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
@@ -375,10 +513,13 @@ function defaultLinearName(kind: LinearEntity['kind']): string {
 function parseLinearEntity(v: Record<string, unknown>): LinearEntity | null {
   if (typeof v.id !== 'string') return null;
   if (typeof v.layerId !== 'string') return null;
-  const kind = typeof v.kind === 'string' &&
-    (LINEAR_ENTITY_KINDS as readonly string[]).includes(v.kind)
-    ? v.kind as LinearEntity['kind']
-    : 'guide';
+  const kind = v.kind === undefined
+    ? 'guide'
+    : typeof v.kind === 'string' &&
+        (LINEAR_ENTITY_KINDS as readonly string[]).includes(v.kind)
+      ? v.kind as LinearEntity['kind']
+      : null;
+  if (kind === null) return null;
   if (!isRing(v.points)) return null;
   const minimumPoints = kind === 'annotation'
     ? 1
@@ -476,7 +617,7 @@ function runMigrations(
   const migrations: Array<{ fromVersion: string; toVersion: string }> = [];
   const visited = new Set<string>();
 
-  while (current.version !== APP_VERSION) {
+  while (current.version !== PROJECT_SCHEMA_VERSION) {
     const version = current.version;
     if (typeof version !== 'string') {
       return { ok: false, reason: 'migration-failed', version: sourceVersion };
@@ -561,27 +702,44 @@ export function decodeProject(json: string): ProjectDecodeResult {
   }
   const validEntityIds = new Set(entities.map((entity) => entity.id));
   const groups = parseGroups(project.groups, validEntityIds);
-  const constraints = parseConstraints(project.constraints);
+  const constraints = parseConstraints(
+    project.constraints,
+    entityPointIds(entities),
+  );
+  const discardedItems: ProjectDiscardedItem[] = [
+    ...discardedEntities.map((item) => ({ kind: 'entity' as const, ...item })),
+    ...groups.discarded.map((item) => ({ kind: 'group' as const, ...item })),
+    ...constraints.discarded.map((item) => ({
+      kind: 'constraint' as const,
+      ...item,
+    })),
+  ];
 
   return {
     ok: true,
     project: {
       id: project.id,
       name: project.name,
-      version: APP_VERSION,
+      version: PROJECT_SCHEMA_VERSION,
       unit: project.unit,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
       settings: parseSettings(project.settings),
       layers,
       entities,
-      groups,
-      constraints,
+      groups: groups.values,
+      constraints: constraints.values,
     },
     sourceVersion: migrated.sourceVersion,
     migrations: migrated.migrations,
     discardedEntityCount: discardedEntities.length,
     discardedEntities,
+    discardedGroupCount: groups.discarded.length,
+    discardedGroups: groups.discarded,
+    discardedConstraintCount: constraints.discarded.length,
+    discardedConstraints: constraints.discarded,
+    discardedItemCount: discardedItems.length,
+    discardedItems,
   };
 }
 

@@ -76,6 +76,13 @@ export type AppState = {
     metadata?: PolygonEntity['metadata'],
   ) => PolygonEntity | null;
   importPolygonGeometries: (geometries: PolygonGeometry[]) => PolygonEntity[];
+  importDrawingGeometries: (
+    polygons: PolygonGeometry[],
+    linears: Array<{
+      points: Point[];
+      kind: Extract<LinearEntityKind, 'polyline' | 'arc'>;
+    }>,
+  ) => Entity[];
   addRectangle: (p1: Point, p2: Point) => PolygonEntity | null;
   addCircle: (center: Point, radius: number) => PolygonEntity | null;
   addEllipse: (center: Point, radiusX: number, radiusY: number) => PolygonEntity | null;

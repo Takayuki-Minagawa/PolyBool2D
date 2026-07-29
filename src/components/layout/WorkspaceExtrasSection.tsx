@@ -7,6 +7,10 @@ import {
 } from '../../app/groups';
 import { makeId } from '../../app/idUtils';
 import {
+  isEntityEffectivelyLocked,
+  unlockedEntityIds,
+} from '../../app/layers';
+import {
   projectPointKey,
   solveProjectConstraints,
 } from '../../app/projectConstraints';
@@ -32,7 +36,9 @@ function selectedPolygons(
   const selected = new Set(selectedIds);
   return project.entities.filter(
     (entity): entity is PolygonEntity =>
-      entity.type === 'polygon' && selected.has(entity.id),
+      entity.type === 'polygon' &&
+      selected.has(entity.id) &&
+      !isEntityEffectivelyLocked(project, entity),
   );
 }
 
@@ -70,7 +76,10 @@ export function WorkspaceExtrasSection() {
   }
 
   function groupSelection() {
-    const group = createEntityGroup(selectedIds, `Group ${(project.groups?.length ?? 0) + 1}`);
+    const group = createEntityGroup(
+      unlockedEntityIds(project, selectedIds),
+      `Group ${(project.groups?.length ?? 0) + 1}`,
+    );
     if (!group) return;
     commitProject({ ...project, groups: [...(project.groups ?? []), group] });
   }
@@ -78,9 +87,45 @@ export function WorkspaceExtrasSection() {
   function ungroupSelection() {
     const selected = new Set(selectedIds);
     const groups = (project.groups ?? []).filter(
-      (group) => !group.entityIds.some((id) => selected.has(id)),
+      (group) =>
+        group.locked ||
+        !group.entityIds.some((id) => selected.has(id)),
     );
     commitProject({ ...project, groups });
+  }
+
+  function toggleGroupLock(groupId: string) {
+    const group = (project.groups ?? []).find((item) => item.id === groupId);
+    if (!group) return;
+    const locked = !group.locked;
+    commitProject(
+      {
+        ...project,
+        groups: (project.groups ?? []).map((item) =>
+          item.id === groupId ? { ...item, locked } : item,
+        ),
+      },
+      locked
+        ? selectedIds.filter((id) => !group.entityIds.includes(id))
+        : selectedIds,
+    );
+  }
+
+  function toggleGroupVisibility(groupId: string) {
+    const group = (project.groups ?? []).find((item) => item.id === groupId);
+    if (!group) return;
+    const visible = !group.visible;
+    commitProject(
+      {
+        ...project,
+        groups: (project.groups ?? []).map((item) =>
+          item.id === groupId ? { ...item, visible } : item,
+        ),
+      },
+      visible
+        ? selectedIds
+        : selectedIds.filter((id) => !group.entityIds.includes(id)),
+    );
   }
 
   function saveSelectionAsTemplate() {
@@ -198,6 +243,7 @@ export function WorkspaceExtrasSection() {
           disabled={
             selectedIds.length === 0 ||
             !(project.groups ?? []).some((group) =>
+              !group.locked &&
               group.entityIds.some((id) => selectedIds.includes(id)),
             )
           }
@@ -214,6 +260,37 @@ export function WorkspaceExtrasSection() {
           {t('panel.insertTemplate')} ({templates.length})
         </button>
       </div>
+      {(project.groups?.length ?? 0) > 0 && (
+        <div className="panel-action-stack">
+          {(project.groups ?? []).map((group) => (
+            <div className="row" key={group.id} data-group-id={group.id}>
+              <span>{group.name}</span>
+              <button
+                type="button"
+                aria-label={t(
+                  group.visible ? 'panel.hideGroup' : 'panel.showGroup',
+                  { name: group.name },
+                )}
+                aria-pressed={group.visible}
+                onClick={() => toggleGroupVisibility(group.id)}
+              >
+                {group.visible ? '👁' : '—'}
+              </button>
+              <button
+                type="button"
+                aria-label={t(
+                  group.locked ? 'panel.unlockGroup' : 'panel.lockGroup',
+                  { name: group.name },
+                )}
+                aria-pressed={group.locked}
+                onClick={() => toggleGroupLock(group.id)}
+              >
+                {group.locked ? '🔒' : '🔓'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <h3>{t('panel.constraints')}</h3>
       <div className="geometry-value-form">

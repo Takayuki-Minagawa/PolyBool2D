@@ -1,9 +1,9 @@
 import { makeId } from './idUtils';
 import {
-  APP_VERSION,
   DEFAULT_LINE_STYLE,
   DEFAULT_SETTINGS,
   DEFAULT_STYLE,
+  PROJECT_SCHEMA_VERSION,
   type Layer,
   type LinearEntity,
   type LinearEntityKind,
@@ -27,7 +27,7 @@ export function createEmptyProject(): Project {
   return {
     id: makeId('project'),
     name: 'Untitled',
-    version: APP_VERSION,
+    version: PROJECT_SCHEMA_VERSION,
     unit: 'mm',
     createdAt: now,
     updatedAt: now,

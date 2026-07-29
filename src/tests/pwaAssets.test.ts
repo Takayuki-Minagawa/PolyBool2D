@@ -186,4 +186,37 @@ describe('PWA assets', () => {
       'https://example.test/repo/index.html',
     );
   });
+
+  it('refreshes assets from the network and falls back to cache offline', async () => {
+    const online = serviceWorkerHarness();
+    let onlineResponse: Promise<unknown> | undefined;
+    const request = new FakeRequest('https://example.test/repo/favicon.svg');
+    online.listeners.get('fetch')!({
+      request,
+      waitUntil: () => undefined,
+      respondWith: (promise) => {
+        onlineResponse = promise;
+      },
+    });
+
+    await expect(onlineResponse).resolves.not.toBe(online.fallback);
+    expect(online.fetch).toHaveBeenCalledWith(request);
+    expect(online.cache.put).toHaveBeenCalledWith(
+      request,
+      expect.any(FakeResponse),
+    );
+
+    const offline = serviceWorkerHarness();
+    offline.fetch.mockRejectedValueOnce(new Error('offline'));
+    let offlineResponse: Promise<unknown> | undefined;
+    offline.listeners.get('fetch')!({
+      request,
+      waitUntil: () => undefined,
+      respondWith: (promise) => {
+        offlineResponse = promise;
+      },
+    });
+    await expect(offlineResponse).resolves.toBe(offline.fallback);
+    expect(offline.caches.match).toHaveBeenCalledWith(request);
+  });
 });

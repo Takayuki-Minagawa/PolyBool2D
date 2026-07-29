@@ -18,6 +18,12 @@ import type { Point } from '../../geometry/types';
 
 const MOVE_THRESHOLD_PX = 3;
 
+function invalidateSnapIndex(): void {
+  useAppStore.setState((state) => ({
+    snapRevision: state.snapRevision + 1,
+  }));
+}
+
 type MoveDrag = {
   startWorld: Point;
   originals: Map<string, Entity>;
@@ -132,6 +138,7 @@ export function useEntityDragging({
     if (moveDragRef.current) {
       const drag = moveDragRef.current;
       moveDragRef.current = null;
+      if (drag.moved) invalidateSnapIndex();
       if (!drag.moved && pendingSelectRef.current) {
         selectEntity(pendingSelectRef.current, false);
       }
@@ -141,7 +148,10 @@ export function useEntityDragging({
     if (vertexDragRef.current) {
       const drag = vertexDragRef.current;
       vertexDragRef.current = null;
-      if (drag.moved) validateEntity(drag.entityId);
+      if (drag.moved) {
+        validateEntity(drag.entityId);
+        invalidateSnapIndex();
+      }
       return true;
     }
     return false;
@@ -223,6 +233,9 @@ export function useEntityDragging({
   }
 
   function cancel(): void {
+    if (moveDragRef.current?.moved || vertexDragRef.current?.moved) {
+      invalidateSnapIndex();
+    }
     moveDragRef.current = null;
     pendingSelectRef.current = null;
     vertexDragRef.current = null;

@@ -8,6 +8,7 @@ import { useAppStore } from '../app/appStore';
 import { createEmptyProject } from '../app/projectFactory';
 import { Header } from '../components/layout/Header';
 import {
+  listLocalProjects,
   loadProjectById,
   saveProjectToLocal,
 } from '../persistence/localProjectStore';
@@ -84,6 +85,34 @@ describe('persistence UI', () => {
     act(() => button('開く').click());
     expect(useAppStore.getState().project.name).toBe('保存済み案件');
     expect(host!.querySelector('[aria-labelledby="project-manager-title"]')).toBeNull();
+  });
+
+  it('keeps a recovery warning visible after opening a damaged project', () => {
+    const saved = createEmptyProject();
+    saved.name = 'Recoverable project';
+    expect(saveProjectToLocal(saved)).toBe(true);
+    const raw = JSON.parse(serializeProject(saved));
+    raw.entities.push({ id: 'broken', type: 'polygon' });
+    localStorage.setItem(
+      `pb2d.project.${encodeURIComponent(saved.id)}`,
+      JSON.stringify(raw),
+    );
+
+    act(() => {
+      root = createRoot(host!);
+      root.render(<Header />);
+    });
+    act(() => button('プロジェクト').click());
+    const card = projectCard('Recoverable project');
+    act(() => {
+      const open = [...card.querySelectorAll('button')].find(
+        (element) => element.textContent === '開く',
+      )!;
+      open.click();
+    });
+
+    expect(useAppStore.getState().project.id).toBe(saved.id);
+    expect(useAppStore.getState().ui.errorMessage).toContain('1');
   });
 
   it('imports supported SVG geometry through the SVG file input', async () => {
@@ -218,6 +247,43 @@ describe('persistence UI', () => {
     expect(useAppStore.getState().project.id).not.toBe(current.id);
     expect(loadProjectById(current.id)).toBeNull();
   });
+
+  it('switches away from a deleted current project when only unreadable projects remain', async () => {
+    const current = createEmptyProject();
+    current.name = 'Current project';
+    expect(saveProjectToLocal(current)).toBe(true);
+    const unreadableId = 'unreadable-project';
+    localStorage.setItem(
+      `pb2d.project.${encodeURIComponent(unreadableId)}`,
+      '{broken-json',
+    );
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    await act(async () => {
+      root = createRoot(host!);
+      root.render(<App />);
+      await flushAsyncWork();
+    });
+    act(() => button(i18n.t('header.projects')).click());
+    const card = projectCard(current.name);
+    act(() => {
+      const remove = [...card.querySelectorAll('button')].find(
+        (element) => element.textContent === i18n.t('projects.delete'),
+      )!;
+      remove.click();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+    });
+
+    expect(useAppStore.getState().project.id).not.toBe(current.id);
+    expect(useAppStore.getState().project.id).not.toBe(unreadableId);
+    expect(loadProjectById(current.id)).toBeNull();
+    expect(listLocalProjects().map((entry) => entry.id)).toContain(
+      unreadableId,
+    );
+    expect(useAppStore.getState().ui.errorMessage).not.toBeNull();
+  });
 });
 
 describe('shared URL initialization', () => {
@@ -264,5 +330,29 @@ describe('shared URL initialization', () => {
 
     expect(useAppStore.getState().project.id).not.toBe(shared.id);
     expect(loadProjectById(shared.id)?.name).toBe('新しいローカル案件');
+  });
+});
+
+describe('recoverable local initialization', () => {
+  it('warns and preserves original bytes through the first autosave', async () => {
+    const saved = createEmptyProject();
+    saved.name = 'Recoverable';
+    expect(saveProjectToLocal(saved)).toBe(true);
+    const raw = JSON.parse(serializeProject(saved));
+    raw.entities.push({ id: 'broken', type: 'polygon' });
+    const source = JSON.stringify(raw);
+    const key = `pb2d.project.${encodeURIComponent(saved.id)}`;
+    localStorage.setItem(key, source);
+
+    await act(async () => {
+      root = createRoot(host!);
+      root.render(<App />);
+      await flushAsyncWork();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+    });
+
+    expect(useAppStore.getState().project.id).toBe(saved.id);
+    expect(useAppStore.getState().ui.errorMessage).toContain('1');
+    expect(localStorage.getItem(key)).toBe(source);
   });
 });

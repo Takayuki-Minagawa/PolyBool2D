@@ -161,6 +161,10 @@
     ,"workspaceExtras": "グループ・部品・拘束"
     ,"groupSelection": "選択をグループ化"
     ,"ungroupSelection": "選択のグループ解除"
+    ,"lockGroup": "グループ「{{name}}」をロック"
+    ,"unlockGroup": "グループ「{{name}}」のロックを解除"
+    ,"hideGroup": "グループ「{{name}}」を非表示"
+    ,"showGroup": "グループ「{{name}}」を表示"
     ,"saveTemplate": "選択を部品として保存"
     ,"insertTemplate": "最新の部品を配置"
     ,"constraints": "パラメトリック拘束"
@@ -243,6 +247,30 @@
       "areaMismatch": "分割前後の面積が一致しません。"
     },
     "importInvalid": "不正なJSONファイルです。",
+    "projectDecodeFailed": "プロジェクトを開けませんでした（{{reason}}）。",
+    "projectRecovered": "破損した項目 {{count}} 件を除外してプロジェクトを復旧しました: {{reasons}}。編集するまで元の保存データは上書きしません。",
+    "projectDecodeReasons": {
+      "invalid-json": "JSONが不正",
+      "invalid-root": "プロジェクトのルートが不正",
+      "missing-version": "スキーマバージョンがない",
+      "unsupported-version": "未対応のスキーマバージョン",
+      "migration-failed": "スキーマ移行に失敗",
+      "invalid-project-metadata": "プロジェクト情報が不正",
+      "invalid-layers": "レイヤーが不正",
+      "invalid-entities": "図形一覧が不正",
+      "invalid-entity": "図形が不正",
+      "invalid-polygon": "ポリゴンが不正",
+      "invalid-linear-entity": "線・寸法・注釈が不正",
+      "unsupported-entity-type": "未対応の図形形式",
+      "invalid-group-collection": "グループ一覧が不正",
+      "invalid-group": "グループが不正",
+      "duplicate-group-id": "グループIDが重複",
+      "missing-entity-reference": "グループが存在しない図形を参照",
+      "invalid-constraint-collection": "拘束一覧が不正",
+      "invalid-constraint": "拘束が不正",
+      "duplicate-constraint-id": "拘束IDが重複",
+      "missing-point-reference": "拘束が存在しない点を参照"
+    },
     "svgImportInvalid": "SVGから読み込める図形が見つかりませんでした。",
     "dxfImportInvalid": "DXFから読み込める図形が見つかりませんでした。",
     "geoJsonImportInvalid": "GeoJSONから読み込める図形が見つかりませんでした。",
@@ -294,7 +322,10 @@
       "polygon": "面",
       "guide": "補助線",
       "polyline": "線",
-      "arc": "円弧"
+      "arc": "円弧",
+      "linear-dimension": "長さ寸法",
+      "angular-dimension": "角度寸法",
+      "annotation": "注記"
     }
   },
   "projects": {
@@ -322,7 +353,8 @@
   },
   "drawing": {
     "length": "長さ",
-    "enterToApply": "Enterで適用"
+    "enterToApply": "Enterで適用",
+    "annotationPrompt": "注記テキスト"
   },
   "manual": {
     "title": "操作マニュアル",

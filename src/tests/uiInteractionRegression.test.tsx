@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
 import i18n from '../i18n';
 import { useAppStore } from '../app/appStore';
+import { useViewportStatusStore } from '../app/viewportStatusStore';
 import { boundsForEntities, fitBoundsToView } from '../app/transform';
 import { BooleanActions } from '../components/layout/BooleanActions';
 import { CadViewport } from '../components/cad/CadViewport';
@@ -37,6 +38,7 @@ beforeEach(async () => {
   globalThis.ResizeObserver = TestResizeObserver;
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(viewportRect());
   useAppStore.getState().resetProject();
+  useViewportStatusStore.getState().setCursor(null);
   useAppStore.setState((state) => ({
     activeTool: 'select',
     preview: { type: 'none' },
@@ -158,6 +160,10 @@ describe('viewport interaction regressions', () => {
         clientX: 120,
         clientY: 110,
       }));
+    });
+    const revisionAfterTransientMove = useAppStore.getState().snapRevision;
+
+    act(() => {
       svg.dispatchEvent(new MouseEvent('pointerup', {
         button: 0,
         bubbles: true,
@@ -174,7 +180,76 @@ describe('viewport interaction regressions', () => {
       expect(after.points).not.toEqual(before.points);
     }
     expect(useAppStore.getState().history.past).toHaveLength(1);
+    expect(useAppStore.getState().snapRevision).toBe(
+      revisionAfterTransientMove + 1,
+    );
     expect(useAppStore.getState().project.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+  });
+
+  it('clears the shared viewport cursor when the pointer leaves the canvas', () => {
+    render(<CadViewport />);
+    const svg = host!.querySelector('svg')!;
+
+    act(() => {
+      svg.dispatchEvent(new MouseEvent('pointermove', {
+        bubbles: true,
+        clientX: 120,
+        clientY: 80,
+      }));
+    });
+    expect(useViewportStatusStore.getState().cursor).not.toBeNull();
+
+    act(() => {
+      svg.dispatchEvent(new MouseEvent('pointerout', {
+        bubbles: true,
+        relatedTarget: document.body,
+      }));
+    });
+    expect(useViewportStatusStore.getState().cursor).toBeNull();
+  });
+
+  it('invalidates the snap index after a transient vertex drag finishes', () => {
+    act(() => {
+      useAppStore.getState().addRectangle({ x: 0, y: 0 }, { x: 20, y: 20 });
+      useAppStore.setState({
+        history: { past: [], future: [] },
+      });
+    });
+    render(<CadViewport />);
+    const svg = host!.querySelector('svg')!;
+    const handle = host!.querySelector('svg circle')!;
+    const startX = Number(handle.getAttribute('cx'));
+    const startY = Number(handle.getAttribute('cy'));
+
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('pointerdown', {
+        button: 0,
+        bubbles: true,
+        clientX: startX,
+        clientY: startY,
+      }));
+      svg.dispatchEvent(new MouseEvent('pointermove', {
+        button: 0,
+        bubbles: true,
+        clientX: startX + 12,
+        clientY: startY + 8,
+      }));
+    });
+    const revisionAfterTransientMove = useAppStore.getState().snapRevision;
+
+    act(() => {
+      svg.dispatchEvent(new MouseEvent('pointerup', {
+        button: 0,
+        bubbles: true,
+        clientX: startX + 12,
+        clientY: startY + 8,
+      }));
+    });
+
+    expect(useAppStore.getState().history.past).toHaveLength(1);
+    expect(useAppStore.getState().snapRevision).toBe(
+      revisionAfterTransientMove + 1,
+    );
   });
 
   it('uses Shift for a square rectangle without collapsing either dimension', () => {

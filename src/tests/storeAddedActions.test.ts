@@ -5,7 +5,12 @@ import type { PolygonEntity } from '../app/projectTypes';
 import { rectangleToRing } from '../geometry/circle';
 import { polygonArea } from '../geometry/area';
 import { createEntityGroup } from '../app/groups';
+import {
+  isEntityEffectivelyVisible,
+} from '../app/layers';
 import { projectPointKey } from '../app/projectConstraints';
+import { buildDxf } from '../persistence/dxfExport';
+import { buildSvg } from '../persistence/svgExport';
 
 function resetStore(): void {
   const project = createEmptyProject();
@@ -41,6 +46,40 @@ function polygon(id: string): PolygonEntity {
   const entity = useAppStore.getState().project.entities.find((item) => item.id === id);
   if (!entity || entity.type !== 'polygon') throw new Error(`Missing polygon ${id}`);
   return entity;
+}
+
+function seedPair(): [PolygonEntity, PolygonEntity] {
+  const first = createPolygonEntity({
+    outer: rectangleToRing({ x: 0, y: 0 }, { x: 10, y: 10 }),
+    holes: [],
+  });
+  const second = createPolygonEntity({
+    outer: rectangleToRing({ x: 20, y: 0 }, { x: 30, y: 10 }),
+    holes: [],
+  });
+  useAppStore.setState((state) => ({
+    project: { ...state.project, entities: [first, second] },
+  }));
+  return [first, second];
+}
+
+function constrainFirstEdge(entity: PolygonEntity): void {
+  const a = projectPointKey({
+    entityId: entity.id,
+    ring: 'outer',
+    pointIndex: 0,
+  });
+  const b = projectPointKey({
+    entityId: entity.id,
+    ring: 'outer',
+    pointIndex: 1,
+  });
+  useAppStore.setState((state) => ({
+    project: {
+      ...state.project,
+      constraints: [{ id: 'edge', kind: 'horizontal', a, b }],
+    },
+  }));
 }
 
 describe('layer store actions', () => {
@@ -175,6 +214,84 @@ describe('clipboard store actions', () => {
     expect(useAppStore.getState().clipboard.entities).toEqual([]);
     expect(useAppStore.getState().project.entities).toHaveLength(1);
     expect(useAppStore.getState().history.past).toEqual([]);
+  });
+
+  it('expands unlocked groups for translate, cut, and delete', () => {
+    const [first, second] = seedPair();
+    const group = createEntityGroup([first.id, second.id], 'Pair')!;
+    useAppStore.setState((state) => ({
+      project: { ...state.project, groups: [group] },
+      history: { past: [], future: [] },
+    }));
+
+    useAppStore.getState().translateEntities([first.id], 5, 0);
+    expect(polygon(first.id).geometry.outer[0].x).toBe(5);
+    expect(polygon(second.id).geometry.outer[0].x).toBe(25);
+
+    useAppStore.getState().undo();
+    useAppStore.setState({ selectedEntityIds: [first.id] });
+    useAppStore.getState().cutSelected();
+    expect(useAppStore.getState().project.entities).toEqual([]);
+    expect(useAppStore.getState().clipboard.entities).toHaveLength(2);
+
+    useAppStore.getState().undo();
+    useAppStore.getState().removeEntities([first.id]);
+    expect(useAppStore.getState().project.entities).toEqual([]);
+  });
+
+  it.each(['entity', 'layer', 'group'] as const)(
+    'does not move, cut, delete, or select through a %s lock',
+    (lockKind) => {
+      const [first, second] = seedPair();
+      const group = createEntityGroup([first.id, second.id], 'Pair')!;
+      useAppStore.setState((state) => ({
+        project: {
+          ...state.project,
+          entities:
+            lockKind === 'entity'
+              ? state.project.entities.map((entity) =>
+                  entity.id === first.id ? { ...entity, locked: true } : entity,
+                )
+              : state.project.entities,
+          layers:
+            lockKind === 'layer'
+              ? state.project.layers.map((layer) => ({ ...layer, locked: true }))
+              : state.project.layers,
+          groups: [{ ...group, locked: lockKind === 'group' }],
+        },
+        history: { past: [], future: [] },
+      }));
+
+      useAppStore.getState().selectMany([first.id]);
+      expect(useAppStore.getState().selectedEntityIds).toEqual([]);
+      useAppStore.setState({ selectedEntityIds: [first.id] });
+      useAppStore.getState().translateEntities([first.id], 5, 0);
+      useAppStore.getState().cutSelected();
+      useAppStore.getState().removeEntities([first.id]);
+
+      expect(polygon(first.id).geometry.outer[0].x).toBe(0);
+      expect(useAppStore.getState().project.entities).toHaveLength(2);
+      expect(useAppStore.getState().clipboard.entities).toEqual([]);
+      expect(useAppStore.getState().history.past).toEqual([]);
+    },
+  );
+
+  it('hides group members from selection, rendering, and SVG/DXF output', () => {
+    const [first, second] = seedPair();
+    const group = createEntityGroup([first.id, second.id], 'Pair')!;
+    useAppStore.setState((state) => ({
+      project: {
+        ...state.project,
+        groups: [{ ...group, visible: false }],
+      },
+    }));
+
+    const project = useAppStore.getState().project;
+    expect(isEntityEffectivelyVisible(project, first)).toBe(false);
+    useAppStore.getState().selectMany([first.id]);
+    expect(useAppStore.getState().selectedEntityIds).toEqual([]);
+    expect(buildSvg(project)).not.toContain('<path');
+    expect(buildDxf(project)).not.toContain('LWPOLYLINE');
   });
 });
 
@@ -311,6 +428,78 @@ describe('hole, primitive and validation store actions', () => {
     expect(useAppStore.getState().project.groups).toEqual([group]);
     expect(useAppStore.getState().project.constraints).toHaveLength(1);
   });
+
+  it('cleans groups and constraints when boolean replacement changes entity IDs', () => {
+    const first = useAppStore.getState().addRectangle(
+      { x: 0, y: 0 },
+      { x: 10, y: 10 },
+    )!;
+    const second = useAppStore.getState().addRectangle(
+      { x: 5, y: 0 },
+      { x: 15, y: 10 },
+    )!;
+    const group = createEntityGroup([first.id, second.id], 'Pair')!;
+    constrainFirstEdge(first);
+    useAppStore.setState((state) => ({
+      project: { ...state.project, groups: [group] },
+      history: { past: [], future: [] },
+    }));
+
+    useAppStore.getState().selectMany([first.id, second.id]);
+    useAppStore.getState().unionSelected();
+
+    expect(useAppStore.getState().project.entities).toHaveLength(1);
+    expect(useAppStore.getState().project.groups).toEqual([]);
+    expect(useAppStore.getState().project.constraints).toEqual([]);
+  });
+
+  it.each(['insert', 'delete', 'simplify'] as const)(
+    'removes entity constraints when %s changes vertex topology',
+    (operation) => {
+      const entity =
+        operation === 'simplify'
+          ? createPolygonEntity({
+              outer: [
+                { x: 0, y: 0 },
+                { x: 50, y: 0 },
+                { x: 100, y: 0 },
+                { x: 100, y: 100 },
+                { x: 0, y: 100 },
+              ],
+              holes: [],
+            })
+          : seedSquare();
+      if (operation === 'simplify') {
+        useAppStore.setState((state) => ({
+          project: { ...state.project, entities: [entity] },
+        }));
+      }
+      constrainFirstEdge(entity);
+      useAppStore.setState({ history: { past: [], future: [] } });
+
+      if (operation === 'insert') {
+        useAppStore.getState().insertVertex(
+          {
+            entityId: entity.id,
+            ringType: 'outer',
+            vertexIndex: 0,
+          },
+          { x: 50, y: 0 },
+        );
+      } else if (operation === 'delete') {
+        useAppStore.getState().deleteVertex({
+          entityId: entity.id,
+          ringType: 'outer',
+          vertexIndex: 0,
+        });
+      } else {
+        useAppStore.getState().selectMany([entity.id]);
+        useAppStore.getState().simplifySelected(1);
+      }
+
+      expect(useAppStore.getState().project.constraints).toEqual([]);
+    },
+  );
 
   it('marks invalid geometry, supports undo/redo of the model, and can revalidate after redo', () => {
     const entity = seedSquare();

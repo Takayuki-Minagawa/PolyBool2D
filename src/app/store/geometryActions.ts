@@ -98,7 +98,7 @@ export function createGeometryActions(set: AppSet, get: AppGet): Pick<
       x: (bounds.minX + bounds.maxX) / 2,
       y: (bounds.minY + bounds.maxY) / 2,
     };
-    const selected = new Set(selectedEntityIds);
+    const selected = new Set(polys.map((polygon) => polygon.id));
     get().pushHistory();
     set((s) => ({
       project: touchProject(

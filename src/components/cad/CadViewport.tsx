@@ -134,6 +134,7 @@ export function CadViewport() {
         onPointerMove={viewport.onPointerMove}
         onPointerUp={viewport.onPointerUp}
         onPointerCancel={viewport.onPointerCancel}
+        onPointerLeave={viewport.onPointerLeave}
         onWheel={viewport.onWheel}
         onContextMenu={(event) => openContextMenu(null, event)}
         style={{ touchAction: 'none', cursor: viewport.cursor }}

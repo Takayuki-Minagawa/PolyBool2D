@@ -147,6 +147,35 @@ describe('PropertyPanel section properties', () => {
 });
 
 describe('PropertyPanel entity outliner', () => {
+  it('localizes dimension and annotation entity type badges', async () => {
+    await i18n.changeLanguage('en');
+    act(() => {
+      useAppStore.getState().addLinearEntity(
+        [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 2 }],
+        'linear-dimension',
+      );
+      useAppStore.getState().addLinearEntity(
+        [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }],
+        'angular-dimension',
+      );
+      useAppStore.getState().addLinearEntity(
+        [{ x: 4, y: 5 }],
+        'annotation',
+        { label: 'Note' },
+      );
+    });
+    renderPanel();
+
+    expect(
+      [...host!.querySelectorAll('.entity-type-badge')].map(
+        (badge) => badge.textContent,
+      ),
+    ).toEqual(['Linear dimension', 'Angular dimension', 'Annotation']);
+    expect(host!.querySelector('section .muted-text')?.textContent).toBe(
+      'Annotation',
+    );
+  });
+
   it('selects and edits entity name, visibility, lock, and layer', () => {
     act(() => {
       useAppStore.getState().addRectangle({ x: 0, y: 0 }, { x: 10, y: 10 });

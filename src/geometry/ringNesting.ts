@@ -1,9 +1,32 @@
 import { signedRingArea } from './area';
-import { pointInRing } from './intersections';
+import { pointInRingStrict, segmentIntersection } from './intersections';
 import { ringBBox } from './measure';
 import { normalizePolygon, normalizeRing } from './normalize';
 import { BBoxSpatialIndex } from './spatialIndex';
 import type { PolygonGeometry, Ring } from './types';
+
+function ringStrictlyContained(inner: Ring, outer: Ring): boolean {
+  if (!inner.every((point) => pointInRingStrict(point, outer))) return false;
+  for (let innerIndex = 0; innerIndex < inner.length; innerIndex += 1) {
+    const innerStart = inner[innerIndex];
+    const innerEnd = inner[(innerIndex + 1) % inner.length];
+    for (let outerIndex = 0; outerIndex < outer.length; outerIndex += 1) {
+      const outerStart = outer[outerIndex];
+      const outerEnd = outer[(outerIndex + 1) % outer.length];
+      if (
+        segmentIntersection(
+          innerStart,
+          innerEnd,
+          outerStart,
+          outerEnd,
+        ).type !== 'none'
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
 /**
  * Reconstruct polygon outer/hole topology from independent closed rings using
@@ -37,7 +60,7 @@ export function nestRingsAsPolygons(rings: readonly Ring[]): PolygonGeometry[] {
       const area = normalized[candidateIndex].area;
       if (
         area < parentArea &&
-        pointInRing(item.ring[0], candidate.ring)
+        ringStrictlyContained(item.ring, candidate.ring)
       ) {
         parent = candidateIndex;
         parentArea = area;

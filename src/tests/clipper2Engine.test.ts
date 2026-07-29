@@ -120,4 +120,22 @@ describe('Clipper2Engine', () => {
     expect(engine.area(engine.intersection([large]))).toBeCloseTo(100, 5);
     expect(engine.area(engine.xor([large]))).toBeCloseTo(100, 5);
   });
+
+  it('repairs zero-signed-area self intersections during union', () => {
+    const engine = new Clipper2Engine();
+    const bowTie: PolygonGeometry = {
+      outer: [
+        { x: 0, y: 0 },
+        { x: 10, y: 10 },
+        { x: 0, y: 10 },
+        { x: 10, y: 0 },
+      ],
+      holes: [],
+    };
+
+    const result = engine.union([bowTie]);
+
+    expect(result.length).toBeGreaterThan(0);
+    expect(engine.area(result)).toBeCloseTo(50, 8);
+  });
 });

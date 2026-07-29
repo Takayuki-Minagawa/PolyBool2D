@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createEmptyProject } from '../../app/projectFactory';
+import { projectDecodeFeedback } from '../../app/projectDecodeFeedback';
 import { useAppStore } from '../../app/appStore';
 import type { Project } from '../../app/projectTypes';
 import {
@@ -8,14 +9,18 @@ import {
   duplicateLocalProject,
   listLocalProjects,
   listProjectBackups,
-  loadProjectById,
+  loadProjectByIdResult,
   renameLocalProject,
-  restoreProjectBackup,
+  restoreProjectBackupResult,
   saveProjectToLocal,
   setActiveProjectId,
   type ProjectBackupSummary,
   type StoredProjectSummary,
 } from '../../persistence/localProjectStore';
+import type {
+  ProjectDecodeResult,
+  ProjectDecodeSuccess,
+} from '../../persistence/projectCodec';
 import { useModalDismiss } from '../common/useModalDismiss';
 
 type Props = {
@@ -46,6 +51,13 @@ export function ProjectManagerModal({
   const dialogRef = useRef<HTMLDivElement>(null);
 
   const refresh = () => setProjects(listLocalProjects());
+  const reportDecodeResult = (
+    result: ProjectDecodeResult,
+  ): result is ProjectDecodeSuccess => {
+    const feedback = projectDecodeFeedback(result, t);
+    if (feedback) useAppStore.getState().setErrorMessage(feedback);
+    return result.ok;
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -66,9 +78,20 @@ export function ProjectManagerModal({
 
   function openProject(id: string) {
     const liveProject = useAppStore.getState().project;
-    const project = id === liveProject.id ? liveProject : loadProjectById(id);
-    if (!project) return;
+    let project = liveProject;
+    let decodeResult: ProjectDecodeSuccess | null = null;
+    if (id !== liveProject.id) {
+      const result = loadProjectByIdResult(id);
+      if (!result) {
+        onPersistenceError();
+        return;
+      }
+      if (!reportDecodeResult(result)) return;
+      project = result.project;
+      decodeResult = result;
+    }
     if (!onLoadProject(project, { saveCurrent: id !== liveProject.id })) return;
+    if (decodeResult) reportDecodeResult(decodeResult);
     setActiveProjectId(id);
     onClose();
   }
@@ -86,6 +109,8 @@ export function ProjectManagerModal({
       }
       if (!onLoadProject(renamed, { saveCurrent: false })) return;
     } else {
+      const source = loadProjectByIdResult(project.id);
+      if (!source || !reportDecodeResult(source)) return;
       renamed = renameLocalProject(project.id, trimmed);
       if (!renamed) {
         onPersistenceError();
@@ -101,6 +126,10 @@ export function ProjectManagerModal({
     if (id === liveProject.id && !saveProjectToLocal(liveProject)) {
       onPersistenceError();
       return;
+    }
+    if (id !== liveProject.id) {
+      const source = loadProjectByIdResult(id);
+      if (!source || !reportDecodeResult(source)) return;
     }
     if (!duplicateLocalProject(id)) {
       onPersistenceError();
@@ -124,13 +153,28 @@ export function ProjectManagerModal({
     setProjects(remaining);
     if (!deletingCurrent) return;
 
-    const replacement = remaining[0] ? loadProjectById(remaining[0].id) : createEmptyProject();
-    if (!replacement) {
-      onPersistenceError();
-      return;
+    let replacement = createEmptyProject();
+    let replacementId: string | null = null;
+    let pendingDecodeFeedback: ProjectDecodeResult | null = null;
+    for (const summary of remaining) {
+      const result = loadProjectByIdResult(summary.id);
+      if (!result) continue;
+      if (!result.ok) {
+        pendingDecodeFeedback ??= result;
+        continue;
+      }
+      replacement = result.project;
+      replacementId = summary.id;
+      if (!pendingDecodeFeedback && result.discardedItemCount > 0) {
+        pendingDecodeFeedback = result;
+      }
+      break;
     }
-    if (remaining[0]) setActiveProjectId(remaining[0].id);
-    onLoadProject(replacement, { saveCurrent: false });
+    if (!onLoadProject(replacement, { saveCurrent: false })) return;
+    setActiveProjectId(replacementId);
+    if (pendingDecodeFeedback) {
+      reportDecodeResult(pendingDecodeFeedback);
+    }
   }
 
   function restoreBackup(projectId: string, backupId: string) {
@@ -139,12 +183,18 @@ export function ProjectManagerModal({
       onPersistenceError();
       return;
     }
-    const restored = restoreProjectBackup(projectId, backupId);
-    if (!restored) {
+    const restored = restoreProjectBackupResult(projectId, backupId);
+    if (!restored.ok) {
+      if (restored.decodeResult) reportDecodeResult(restored.decodeResult);
+      else onPersistenceError();
+      return;
+    }
+    if (!reportDecodeResult(restored.decodeResult)) {
       onPersistenceError();
       return;
     }
-    onLoadProject(restored, { saveCurrent: false });
+    if (!onLoadProject(restored.project, { saveCurrent: false })) return;
+    reportDecodeResult(restored.decodeResult);
     refresh();
     setBackups(listProjectBackups(projectId));
   }

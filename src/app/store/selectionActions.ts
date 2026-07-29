@@ -1,7 +1,30 @@
-import type { ViewTransform } from '../projectTypes';
+import type { Project, ViewTransform } from '../projectTypes';
 import { isEntityEffectivelyLocked, isEntityEffectivelyVisible } from '../layers';
-import { expandGroupedSelection, type EntityGroup } from '../groups';
+import { expandGroupedSelection } from '../groups';
 import type { AppSet, AppState } from './types';
+
+function selectableGroupedIds(project: Project, ids: Iterable<string>): string[] {
+  const entitiesById = new Map(
+    project.entities.map((entity) => [entity.id, entity]),
+  );
+  const selectableSeeds = [...ids].filter((id) => {
+    const entity = entitiesById.get(id);
+    return (
+      entity !== undefined &&
+      isEntityEffectivelyVisible(project, entity) &&
+      !isEntityEffectivelyLocked(project, entity)
+    );
+  });
+  return expandGroupedSelection(selectableSeeds, project.groups ?? [])
+    .filter((id) => {
+      const entity = entitiesById.get(id);
+      return (
+        entity !== undefined &&
+        isEntityEffectivelyVisible(project, entity) &&
+        !isEntityEffectivelyLocked(project, entity)
+      );
+    });
+}
 
 export function createSelectionActions(set: AppSet): Pick<
   AppState,
@@ -36,16 +59,15 @@ export function createSelectionActions(set: AppSet): Pick<
         ) {
           return s;
         }
-        const groups = (
-          s.project as typeof s.project & { groups?: EntityGroup[] }
-        ).groups ?? [];
         if (!additive) {
           return {
-            selectedEntityIds: expandGroupedSelection([id], groups),
+            selectedEntityIds: selectableGroupedIds(s.project, [id]),
           };
         }
         if (s.selectedEntityIds.includes(id)) {
-          const groupedIds = new Set(expandGroupedSelection([id], groups));
+          const groupedIds = new Set(
+            expandGroupedSelection([id], s.project.groups ?? []),
+          );
           return {
             selectedEntityIds: s.selectedEntityIds.filter(
               (selectedId) => !groupedIds.has(selectedId),
@@ -53,21 +75,16 @@ export function createSelectionActions(set: AppSet): Pick<
           };
         }
         return {
-          selectedEntityIds: expandGroupedSelection(
+          selectedEntityIds: selectableGroupedIds(
+            s.project,
             [...s.selectedEntityIds, id],
-            groups,
           ),
         };
       }),
 
     selectMany: (ids) =>
       set((state) => ({
-        selectedEntityIds: expandGroupedSelection(
-          ids,
-          (
-            state.project as typeof state.project & { groups?: EntityGroup[] }
-          ).groups ?? [],
-        ),
+        selectedEntityIds: selectableGroupedIds(state.project, ids),
       })),
 
     selectAll: () =>

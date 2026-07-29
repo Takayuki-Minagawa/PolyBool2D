@@ -1,6 +1,14 @@
 import { makeId } from '../app/idUtils';
 import type { Project } from '../app/projectTypes';
-import { deserializeProject, serializeProject } from './projectCodec';
+import {
+  decodeProject,
+  serializeProject,
+  type ProjectDecodeFailure,
+  type ProjectDecodeFailureReason,
+  type ProjectDecodeResult,
+  type ProjectDecodeSuccess,
+} from './projectCodec';
+import { deleteUnderlaysForProject } from './underlayStore';
 
 const LEGACY_PROJECT_KEY = 'pb2d.project';
 const PROJECT_KEY_PREFIX = 'pb2d.project.';
@@ -8,7 +16,9 @@ const BACKUP_KEY_PREFIX = 'pb2d.backups.';
 const INDEX_KEY = 'pb2d.projects.index';
 const ACTIVE_PROJECT_KEY = 'pb2d.projects.active';
 const MIGRATION_KEY = 'pb2d.projects.migrated';
+const PENDING_UNDERLAY_DELETES_KEY = 'pb2d.underlays.pending-deletes';
 const STORAGE_INDEX_VERSION = 1;
+const UNREADABLE_PROJECT_DATE = '1970-01-01T00:00:00.000Z';
 
 export const MAX_PROJECT_BACKUPS = 10;
 
@@ -25,7 +35,31 @@ export type ProjectBackupSummary = {
   projectUpdatedAt: string;
   name: string;
   entityCount: number;
+  discardedItemCount: number;
+  discardedReasons: string[];
+  decodeFailureReason?: ProjectDecodeFailureReason;
 };
+
+export type LocalProjectLoadResult = {
+  id: string;
+  decodeResult: ProjectDecodeResult;
+};
+
+export type ProjectBackupRestoreResult =
+  | {
+      ok: true;
+      project: Project;
+      decodeResult: ProjectDecodeSuccess;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'backup-not-found'
+        | 'decode-failed'
+        | 'project-id-mismatch'
+        | 'save-failed';
+      decodeResult?: ProjectDecodeFailure;
+    };
 
 type ProjectIndex = {
   version: typeof STORAGE_INDEX_VERSION;
@@ -40,6 +74,87 @@ type ProjectBackup = {
 
 function storageAvailable(): boolean {
   return typeof localStorage !== 'undefined';
+}
+
+let underlayCleanupInFlight = false;
+
+function readPendingUnderlayDeletes(): string[] {
+  if (!storageAvailable()) return [];
+  try {
+    const raw = localStorage.getItem(PENDING_UNDERLAY_DELETES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.filter(
+          (id): id is string => typeof id === 'string' && id.length > 0,
+        ))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingUnderlayDeletes(ids: readonly string[]): boolean {
+  if (!storageAvailable()) return false;
+  try {
+    const unique = [...new Set(ids)].filter((id) => id.length > 0);
+    if (unique.length === 0) {
+      localStorage.removeItem(PENDING_UNDERLAY_DELETES_KEY);
+    } else {
+      localStorage.setItem(PENDING_UNDERLAY_DELETES_KEY, JSON.stringify(unique));
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retry durable underlay-deletion tombstones. A transient IndexedDB failure
+ * must not turn a project deletion into a permanent orphaned Blob.
+ */
+function retryPendingUnderlayDeletes(): void {
+  if (!storageAvailable() || underlayCleanupInFlight) return;
+  const pending = readPendingUnderlayDeletes();
+  if (pending.length === 0) return;
+  const attempted = new Set(pending);
+  underlayCleanupInFlight = true;
+  void Promise.all(
+    pending.map(async (projectId) => {
+      try {
+        await deleteUnderlaysForProject(projectId);
+        return projectId;
+      } catch {
+        return null;
+      }
+    }),
+  )
+    .then((completed) => {
+      const removed = new Set(
+        completed.filter((id): id is string => id !== null),
+      );
+      writePendingUnderlayDeletes(
+        readPendingUnderlayDeletes().filter((id) => !removed.has(id)),
+      );
+    })
+    .finally(() => {
+      underlayCleanupInFlight = false;
+      // Process IDs queued while this batch was running, but avoid an
+      // immediate retry loop for failures from the batch just attempted.
+      if (readPendingUnderlayDeletes().some((id) => !attempted.has(id))) {
+        retryPendingUnderlayDeletes();
+      }
+    });
+}
+
+function scheduleUnderlayCleanup(projectId: string): void {
+  if (!projectId) return;
+  const pending = [...readPendingUnderlayDeletes(), projectId];
+  if (!writePendingUnderlayDeletes(pending)) {
+    void deleteUnderlaysForProject(projectId).catch(() => undefined);
+    return;
+  }
+  retryPendingUnderlayDeletes();
 }
 
 function projectKey(id: string): string {
@@ -136,7 +251,7 @@ function writeBackups(projectId: string, backups: ProjectBackup[]): boolean {
 }
 
 function retainPreviousVersion(projectId: string, projectJson: string): boolean {
-  if (!deserializeProject(projectJson)) return true;
+  if (!decodeProject(projectJson).ok) return true;
   const backups = readBackups(projectId);
   if (backups[0]?.projectJson === projectJson) return true;
   const next = [{
@@ -154,10 +269,13 @@ function retainPreviousVersion(projectId: string, projectJson: string): boolean 
 
 /** Move the original single-project key into the indexed store at most once. */
 function migrateLegacyProject(): void {
-  if (!storageAvailable() || localStorage.getItem(MIGRATION_KEY) !== null) return;
+  if (!storageAvailable()) return;
+  retryPendingUnderlayDeletes();
+  if (localStorage.getItem(MIGRATION_KEY) !== null) return;
 
   const legacyJson = localStorage.getItem(LEGACY_PROJECT_KEY);
-  const legacyProject = legacyJson ? deserializeProject(legacyJson) : null;
+  const legacyDecode = legacyJson ? decodeProject(legacyJson) : null;
+  const legacyProject = legacyDecode?.ok ? legacyDecode.project : null;
   let migrated = legacyProject === null;
 
   if (legacyProject && legacyJson) {
@@ -184,17 +302,43 @@ function migrateLegacyProject(): void {
   }
 }
 
-function scanStoredProjects(): Project[] {
+type ScannedProject = {
+  storageId: string;
+  decodeResult: ProjectDecodeResult;
+};
+
+function storageIdFromProjectKey(key: string): string {
+  const encoded = key.slice(PROJECT_KEY_PREFIX.length);
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+function scanStoredProjects(): ScannedProject[] {
   if (!storageAvailable()) return [];
-  const projects: Project[] = [];
+  const projects: ScannedProject[] = [];
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
     if (!key?.startsWith(PROJECT_KEY_PREFIX)) continue;
     const raw = localStorage.getItem(key);
-    const project = raw ? deserializeProject(raw) : null;
-    if (project) projects.push(project);
+    if (!raw) continue;
+    projects.push({
+      storageId: storageIdFromProjectKey(key),
+      decodeResult: decodeProject(raw),
+    });
   }
   return projects;
+}
+
+function unreadableProjectSummary(storageId: string): StoredProjectSummary {
+  return {
+    id: storageId,
+    name: `Unreadable project (${storageId})`,
+    createdAt: UNREADABLE_PROJECT_DATE,
+    updatedAt: UNREADABLE_PROJECT_DATE,
+  };
 }
 
 /** List locally saved projects, repairing a missing/stale index when possible. */
@@ -202,9 +346,13 @@ export function listLocalProjects(): StoredProjectSummary[] {
   if (!storageAvailable()) return [];
   migrateLegacyProject();
 
-  const stored = scanStoredProjects();
-  const summaries = stored.map(projectSummary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const indexed = readIndex();
+  const indexedById = new Map(indexed.map((summary) => [summary.id, summary]));
+  const summaries = scanStoredProjects().flatMap(({ storageId, decodeResult }) => {
+    if (decodeResult.ok) return [projectSummary(decodeResult.project)];
+    const preserved = indexedById.get(storageId);
+    return [preserved ?? unreadableProjectSummary(storageId)];
+  }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   if (JSON.stringify(indexed) !== JSON.stringify(summaries)) writeIndex(summaries);
   return summaries;
 }
@@ -229,26 +377,37 @@ export function setActiveProjectId(id: string | null): boolean {
   }
 }
 
-export function loadProjectById(id: string): Project | null {
+export function loadProjectByIdResult(id: string): ProjectDecodeResult | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
   const raw = localStorage.getItem(projectKey(id));
-  return raw ? deserializeProject(raw) : null;
+  return raw ? decodeProject(raw) : null;
+}
+
+export function loadProjectById(id: string): Project | null {
+  const result = loadProjectByIdResult(id);
+  return result?.ok ? result.project : null;
 }
 
 /** Load the last active project, falling back to the most recently updated one. */
-export function loadProjectFromLocal(): Project | null {
+export function loadProjectFromLocalResult(): LocalProjectLoadResult | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
   const activeId = getActiveProjectId();
   if (activeId) {
-    const active = loadProjectById(activeId);
-    if (active) return active;
+    const active = loadProjectByIdResult(activeId);
+    if (active) return { id: activeId, decodeResult: active };
   }
   const first = listLocalProjects()[0];
   if (!first) return null;
   setActiveProjectId(first.id);
-  return loadProjectById(first.id);
+  const decodeResult = loadProjectByIdResult(first.id);
+  return decodeResult ? { id: first.id, decodeResult } : null;
+}
+
+export function loadProjectFromLocal(): Project | null {
+  const result = loadProjectFromLocalResult();
+  return result?.decodeResult.ok ? result.decodeResult.project : null;
 }
 
 /** Save a project and retain the previously saved value as a per-project backup. */
@@ -264,6 +423,21 @@ export function saveProjectToLocal(project: Project): boolean {
     upsertIndex(project);
     setActiveProjectId(project.id);
     return true;
+  }
+  if (previousJson !== null) {
+    const previous = decodeProject(previousJson);
+    if (
+      previous.ok &&
+      previous.discardedItemCount > 0 &&
+      serializeProject(previous.project) === nextJson
+    ) {
+      // Loading a recoverable file normalizes it in memory. Do not let the
+      // first autosave silently erase the malformed records before the user
+      // has made an intentional edit; the original bytes remain available.
+      upsertIndex(project);
+      setActiveProjectId(project.id);
+      return true;
+    }
   }
 
   // Backups are best effort. If quota pressure prevents even a single
@@ -289,6 +463,11 @@ export function deleteLocalProject(id: string): boolean {
   } catch {
     return false;
   }
+  // The project body is the authoritative delete. IndexedDB underlays are
+  // cleaned asynchronously so callers can synchronously switch away before
+  // autosave has any chance to recreate the deleted project. A localStorage
+  // tombstone makes transient IndexedDB failures retryable on later activity.
+  scheduleUnderlayCleanup(id);
 
   // Once the project body is gone, all metadata is repairable. Quota/security
   // errors while pruning backups or hints must not report a false deletion
@@ -349,28 +528,60 @@ export function renameLocalProject(id: string, name: string): Project | null {
 
 export function listProjectBackups(projectId: string): ProjectBackupSummary[] {
   migrateLegacyProject();
-  return readBackups(projectId).flatMap((backup) => {
-    const project = deserializeProject(backup.projectJson);
-    return project
-      ? [{
-          id: backup.id,
-          savedAt: backup.savedAt,
-          projectUpdatedAt: project.updatedAt,
-          name: project.name,
-          entityCount: project.entities.length,
-        }]
-      : [];
+  return readBackups(projectId).map((backup) => {
+    const result = decodeProject(backup.projectJson);
+    if (!result.ok) {
+      return {
+        id: backup.id,
+        savedAt: backup.savedAt,
+        projectUpdatedAt: backup.savedAt,
+        name: 'Unreadable backup',
+        entityCount: 0,
+        discardedItemCount: 0,
+        discardedReasons: [],
+        decodeFailureReason: result.reason,
+      };
+    }
+    return {
+      id: backup.id,
+      savedAt: backup.savedAt,
+      projectUpdatedAt: result.project.updatedAt,
+      name: result.project.name,
+      entityCount: result.project.entities.length,
+      discardedItemCount: result.discardedItemCount,
+      discardedReasons: [...new Set(
+        result.discardedItems.map((item) => item.reason),
+      )],
+    };
   });
 }
 
 /** Restore a snapshot while first backing up the project's current saved value. */
-export function restoreProjectBackup(projectId: string, backupId: string): Project | null {
+export function restoreProjectBackupResult(
+  projectId: string,
+  backupId: string,
+): ProjectBackupRestoreResult {
   migrateLegacyProject();
   const backup = readBackups(projectId).find((entry) => entry.id === backupId);
-  const snapshot = backup ? deserializeProject(backup.projectJson) : null;
-  if (!snapshot || snapshot.id !== projectId) return null;
-  const restored = { ...snapshot, updatedAt: new Date().toISOString() };
-  return saveProjectToLocal(restored) ? restored : null;
+  if (!backup) return { ok: false, reason: 'backup-not-found' };
+  const decodeResult = decodeProject(backup.projectJson);
+  if (!decodeResult.ok) {
+    return { ok: false, reason: 'decode-failed', decodeResult };
+  }
+  if (decodeResult.project.id !== projectId) {
+    return { ok: false, reason: 'project-id-mismatch' };
+  }
+  const restored = {
+    ...decodeResult.project,
+    updatedAt: new Date().toISOString(),
+  };
+  if (!saveProjectToLocal(restored)) return { ok: false, reason: 'save-failed' };
+  return { ok: true, project: restored, decodeResult };
+}
+
+export function restoreProjectBackup(projectId: string, backupId: string): Project | null {
+  const result = restoreProjectBackupResult(projectId, backupId);
+  return result.ok ? result.project : null;
 }
 
 /** Compatibility helper: remove the currently active saved project. */

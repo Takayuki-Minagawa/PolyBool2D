@@ -127,6 +127,18 @@ function addRing(
   return true;
 }
 
+function twiceRingAreaRelativeTo(ring: Ring, origin: Point): number {
+  let twiceArea = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const current = ring[index];
+    const next = ring[(index + 1) % ring.length];
+    twiceArea +=
+      (current.x - origin.x) * (next.y - origin.y) -
+      (next.x - origin.x) * (current.y - origin.y);
+  }
+  return twiceArea;
+}
+
 function expandBounds(bounds: BBox | null, ring: Ring): BBox | null {
   let next = bounds;
   for (const point of ring) {
@@ -179,6 +191,13 @@ export function calculateMultiPolygonSectionProperties(
     bounds = expandBounds(bounds, polygon.outer);
     if (!bounds) return null;
     for (const hole of polygon.holes) {
+      if (!isFiniteRing(hole)) return null;
+      // A finite zero-area hole removes no material. Ignore it instead of
+      // invalidating otherwise usable section properties.
+      if (hole.length < 3) continue;
+      const twiceArea = twiceRingAreaRelativeTo(hole, origin);
+      if (!Number.isFinite(twiceArea)) return null;
+      if (twiceArea === 0) continue;
       if (!addRing(totals, hole, -1, origin)) return null;
     }
   }

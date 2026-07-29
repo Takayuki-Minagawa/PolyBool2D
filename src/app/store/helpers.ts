@@ -1,5 +1,12 @@
 import { polygonBBox, type BBox } from '../../geometry/measure';
 import type { Point, PolygonGeometry, Ring } from '../../geometry/types';
+import { sanitizeGroups } from '../groups';
+import { isEntityEffectivelyLocked } from '../layers';
+import {
+  parseProjectPointKey,
+  projectConstraintPointIds,
+  sanitizeProjectConstraints,
+} from '../projectConstraints';
 import type {
   Entity,
   Layer,
@@ -17,7 +24,51 @@ export function clone<T>(v: T): T {
 }
 
 export function touchProject(project: Project, entities: Entity[]): Project {
-  return { ...project, entities, updatedAt: new Date().toISOString() };
+  const previousById = new Map(
+    project.entities.map((entity) => [entity.id, entity]),
+  );
+  const topologyChangedEntityIds = new Set(
+    entities.flatMap((entity) => {
+      const previous = previousById.get(entity.id);
+      if (!previous || previous.type !== entity.type) return [];
+      if (entity.type === 'polygon' && previous.type === 'polygon') {
+        const sameTopology =
+          previous.geometry.outer.length === entity.geometry.outer.length &&
+          previous.geometry.holes.length === entity.geometry.holes.length &&
+          previous.geometry.holes.every(
+            (hole, index) =>
+              hole.length === entity.geometry.holes[index]?.length,
+          );
+        return sameTopology ? [] : [entity.id];
+      }
+      if (entity.type === 'guide-line' && previous.type === 'guide-line') {
+        return previous.points.length === entity.points.length
+          ? []
+          : [entity.id];
+      }
+      return [];
+    }),
+  );
+  const next = {
+    ...project,
+    entities,
+    updatedAt: new Date().toISOString(),
+  };
+  const validEntityIds = new Set(entities.map((entity) => entity.id));
+  const constraints = (next.constraints ?? []).filter((constraint) =>
+    projectConstraintPointIds(constraint).every((pointId) => {
+      const reference = parseProjectPointKey(pointId);
+      return (
+        reference !== null &&
+        !topologyChangedEntityIds.has(reference.entityId)
+      );
+    }),
+  );
+  return {
+    ...next,
+    groups: sanitizeGroups(next.groups, validEntityIds),
+    constraints: sanitizeProjectConstraints(next, constraints),
+  };
 }
 
 export function touchProjectUpdatedAt(project: Project): Project {
@@ -69,12 +120,20 @@ export function mutateSelectedPolygons(
 export function polygonsByIds(project: Project, ids: string[]): PolygonEntity[] {
   const wanted = new Set(ids);
   return project.entities.filter(
-    (e): e is PolygonEntity => isPolygon(e) && wanted.has(e.id),
+    (e): e is PolygonEntity =>
+      isPolygon(e) &&
+      wanted.has(e.id) &&
+      !isEntityEffectivelyLocked(project, e),
   );
 }
 
 export function getPolygon(project: Project, id: string): PolygonEntity | undefined {
-  return project.entities.find((e): e is PolygonEntity => isPolygon(e) && e.id === id);
+  return project.entities.find(
+    (e): e is PolygonEntity =>
+      isPolygon(e) &&
+      e.id === id &&
+      !isEntityEffectivelyLocked(project, e),
+  );
 }
 
 export function replaceEntities(

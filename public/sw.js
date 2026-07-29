@@ -92,17 +92,16 @@ async function navigationResponse(request) {
 }
 
 async function assetResponse(request) {
-  const cached = await caches.match(request);
-  if (cached) return cached;
   try {
     const response = await fetch(request);
     if (response.ok) {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(request, response.clone());
+      return response;
     }
-    return response;
+    return await caches.match(request) ?? response;
   } catch {
-    return Response.error();
+    return await caches.match(request) ?? Response.error();
   }
 }
 

@@ -3,6 +3,7 @@ import { createEmptyProject } from '../app/projectFactory';
 import {
   exportProjectFile,
   importProjectFile,
+  importProjectFileResult,
 } from '../persistence/projectFileIo';
 
 afterEach(() => vi.restoreAllMocks());
@@ -43,5 +44,22 @@ describe('project file I/O', () => {
     expect(createObjectUrl).toHaveBeenCalledOnce();
     expect(click).toHaveBeenCalledOnce();
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:project');
+  });
+
+  it('exposes recovery diagnostics to the file import caller', async () => {
+    const project = createEmptyProject();
+    const raw = JSON.parse(JSON.stringify(project));
+    raw.entities.push({ id: 'broken', type: 'polygon' });
+    const file = new File([JSON.stringify(raw)], 'recoverable.json', {
+      type: 'application/json',
+    });
+
+    const result = await importProjectFileResult(file);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.discardedItems).toEqual([
+      { kind: 'entity', index: 0, reason: 'invalid-polygon' },
+    ]);
   });
 });

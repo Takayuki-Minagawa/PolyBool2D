@@ -1,4 +1,5 @@
 import type { Entity, Layer, Project } from './projectTypes';
+import { expandGroupedSelection } from './groups';
 
 export function layerForEntity(project: Project, entity: Entity): Layer | undefined {
   return project.layers.find((layer) => layer.id === entity.layerId);
@@ -6,12 +7,42 @@ export function layerForEntity(project: Project, entity: Entity): Layer | undefi
 
 export function isEntityEffectivelyVisible(project: Project, entity: Entity): boolean {
   const layer = layerForEntity(project, entity);
-  return entity.visible && layer?.visible !== false;
+  const groupHidden = (project.groups ?? []).some(
+    (group) => !group.visible && group.entityIds.includes(entity.id),
+  );
+  return entity.visible && layer?.visible !== false && !groupHidden;
 }
 
 export function isEntityEffectivelyLocked(project: Project, entity: Entity): boolean {
   const layer = layerForEntity(project, entity);
-  return entity.locked || layer?.locked === true;
+  const groupLocked = (project.groups ?? []).some(
+    (group) => group.locked && group.entityIds.includes(entity.id),
+  );
+  return entity.locked || layer?.locked === true || groupLocked;
+}
+
+/** Expand groups, then retain only entities that are writable under every lock. */
+export function unlockedEntityIds(
+  project: Project,
+  ids: Iterable<string>,
+): string[] {
+  const entitiesById = new Map(
+    project.entities.map((entity) => [entity.id, entity]),
+  );
+  const unlockedSeeds = [...ids].filter((id) => {
+    const entity = entitiesById.get(id);
+    return entity && !isEntityEffectivelyLocked(project, entity);
+  });
+  const expanded = new Set(
+    expandGroupedSelection(unlockedSeeds, project.groups ?? []),
+  );
+  return project.entities
+    .filter(
+      (entity) =>
+        expanded.has(entity.id) &&
+        !isEntityEffectivelyLocked(project, entity),
+    )
+    .map((entity) => entity.id);
 }
 
 export function uniqueLayerName(layers: Layer[], preferred = 'Layer'): string {

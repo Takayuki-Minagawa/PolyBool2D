@@ -121,7 +121,7 @@ export function LayerManagerSection() {
                 className="icon-button danger"
                 aria-label={t('layers.delete', { name: layer.name })}
                 title={t('layers.delete', { name: layer.name })}
-                disabled={layers.length <= 1}
+                disabled={layers.length <= 1 || layer.locked}
                 onClick={() => {
                   if (!window.confirm(t('layers.confirmDelete', { name: layer.name }))) return;
                   removeLayer(layer.id);
@@ -237,6 +237,7 @@ export function EntityOutlinerSection() {
                 <select
                   aria-label={t('outliner.layer', { name: entity.name })}
                   value={entity.layerId}
+                  disabled={effectivelyLocked}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => {
                     event.stopPropagation();

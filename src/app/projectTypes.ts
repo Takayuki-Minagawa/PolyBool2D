@@ -171,6 +171,14 @@ export type ViewTransform = {
 /** Single source of truth: the application/package version declared at the repository root. */
 export const APP_VERSION = packageMetadata.version;
 
+/**
+ * Persisted project schema version.
+ *
+ * This must only change when the on-disk project shape changes. Application
+ * releases may advance independently without making existing files obsolete.
+ */
+export const PROJECT_SCHEMA_VERSION = '0.3.0';
+
 export const DEFAULT_SETTINGS: ProjectSettings = {
   gridSize: 100,
   snapToGrid: true,

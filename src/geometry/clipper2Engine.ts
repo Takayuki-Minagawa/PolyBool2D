@@ -251,7 +251,9 @@ export function offsetWithClipper2(
 export class Clipper2Engine implements GeometryEngine {
   union(input: MultiPolygonGeometry): MultiPolygonGeometry {
     if (input.length === 0) return [];
-    return executeBoolean(ClipType.Union, input, null);
+    // Union is also the canonical self-intersection repair operation. Do not
+    // normalize first: a bow-tie has zero signed area until Clipper2 splits it.
+    return repairWithClipper2(input);
   }
 
   difference(

@@ -1,0 +1,31 @@
+{
+  "id": "fixture-project-v0.2",
+  "name": "Version 0.2 fixture",
+  "version": "0.2.0",
+  "unit": "mm",
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "updatedAt": "2025-01-02T00:00:00.000Z",
+  "settings": {
+    "gridSize": 100,
+    "snapToGrid": true,
+    "snapToVertex": true,
+    "snapToEdge": true,
+    "snapTolerancePx": 12,
+    "areaPrecision": 3,
+    "coordinatePrecision": 3,
+    "circleSegments": 64,
+    "areaDisplayUnit": "m2",
+    "angleSnapEnabled": false,
+    "angleSnapIncrementDeg": 15
+  },
+  "layers": [
+    {
+      "id": "layer-default",
+      "name": "Layer 1",
+      "visible": true,
+      "locked": false,
+      "color": "#3a8dde"
+    }
+  ],
+  "entities": []
+}

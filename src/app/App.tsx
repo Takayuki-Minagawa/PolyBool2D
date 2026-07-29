@@ -10,10 +10,14 @@ import { CadViewport } from '../components/cad/CadViewport';
 import { useAppStore } from './appStore';
 import { applyDocumentLanguage, applyDocumentTheme } from './preferences';
 import { makeId } from './idUtils';
+import { projectDecodeFeedback } from './projectDecodeFeedback';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
-import { loadProjectFromLocal, saveProjectToLocal } from '../persistence/localProjectStore';
 import {
-  decodeProjectFromShareHash,
+  loadProjectFromLocalResult,
+  saveProjectToLocal,
+} from '../persistence/localProjectStore';
+import {
+  decodeProjectFromShareHashResult,
   SHARE_HASH_PREFIX,
 } from '../persistence/shareUrl';
 
@@ -46,8 +50,18 @@ export function App() {
   // autosave paused until the asynchronous shared payload has been decoded.
   useEffect(() => {
     const loadLocal = () => {
-      const stored = loadProjectFromLocal();
-      if (stored) loadProject(stored);
+      const stored = loadProjectFromLocalResult();
+      if (!stored) return;
+      const feedback = projectDecodeFeedback(
+        stored.decodeResult,
+        (key, options) => i18n.t(key, options),
+      );
+      if (!stored.decodeResult.ok) {
+        if (feedback) setErrorMessage(feedback);
+        return;
+      }
+      loadProject(stored.decodeResult.project);
+      if (feedback) setErrorMessage(feedback);
     };
 
     const hash = window.location.hash;
@@ -58,26 +72,37 @@ export function App() {
     }
 
     let cancelled = false;
-    void decodeProjectFromShareHash(hash)
-      .then((shared) => {
+    void decodeProjectFromShareHashResult(hash)
+      .then((sharedResult) => {
         if (cancelled) return;
         window.history.replaceState(
           window.history.state,
           '',
           `${window.location.pathname}${window.location.search}`,
         );
-        if (shared) {
+        if (sharedResult?.ok) {
           const now = new Date().toISOString();
           // A shared snapshot becomes an independent local project. Reusing
           // its source ID could silently replace a newer local copy.
           loadProject({
-            ...shared,
+            ...sharedResult.project,
             id: makeId('project'),
             createdAt: now,
             updatedAt: now,
           });
+          const feedback = projectDecodeFeedback(
+            sharedResult,
+            (key, options) => i18n.t(key, options),
+          );
+          if (feedback) setErrorMessage(feedback);
         } else {
-          setErrorMessage('errors.shareInvalid');
+          const feedback = sharedResult
+            ? projectDecodeFeedback(
+                sharedResult,
+                (key, options) => i18n.t(key, options),
+              )
+            : null;
+          setErrorMessage(feedback ?? 'errors.shareInvalid');
           loadLocal();
         }
         setInitialized(true);
@@ -97,7 +122,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadProject, setErrorMessage]);
+  }, [i18n, loadProject, setErrorMessage]);
 
   // Auto-save to localStorage (debounced)
   useEffect(() => {

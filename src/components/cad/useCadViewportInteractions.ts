@@ -182,6 +182,10 @@ export function useCadViewportInteractions(size: ViewportSize) {
     setViewportCursor(null);
   }
 
+  function onPointerLeave(): void {
+    setViewportCursor(null);
+  }
+
   return {
     svgRef,
     fitViewToContent,
@@ -191,6 +195,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     onPointerMove,
     onPointerUp,
     onPointerCancel,
+    onPointerLeave,
     onShapePointerDown: entityDragging.onShapePointerDown,
     onVertexPointerDown: entityDragging.onVertexPointerDown,
     numericInput: drawingKeyboard.numericInput,

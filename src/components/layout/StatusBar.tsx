@@ -4,7 +4,7 @@ import { formatArea } from '../../app/units';
 import { toolDefinition } from '../../app/toolRegistry';
 import { selectSelectedAreaSummary } from '../../app/store/selectors';
 import { useViewportStatusStore } from '../../app/viewportStatusStore';
-import { shallow } from 'zustand/shallow';
+import { useShallow } from 'zustand/react/shallow';
 
 export function StatusBar() {
   const { t } = useTranslation();
@@ -16,7 +16,7 @@ export function StatusBar() {
   const coordinatePrecision = useAppStore(
     (state) => state.project.settings.coordinatePrecision,
   );
-  const areaSummary = useAppStore(selectSelectedAreaSummary, shallow);
+  const areaSummary = useAppStore(useShallow(selectSelectedAreaSummary));
   const cursor = useViewportStatusStore((state) => state.cursor);
   const error = errorRaw ? t(errorRaw) : null;
   const toolMeta = toolDefinition(tool);

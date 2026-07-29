@@ -18,6 +18,20 @@ function dxfEntityDocument(entityLines: Array<string | number>): string {
   ].join('\n');
 }
 
+function dxfDocument(
+  entityLines: Array<string | number>,
+  insunits?: number,
+): string {
+  return [
+    ...(insunits === undefined
+      ? []
+      : [0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, insunits, 0, 'ENDSEC']),
+    0, 'SECTION', 2, 'ENTITIES',
+    ...entityLines,
+    0, 'ENDSEC', 0, 'EOF',
+  ].join('\n');
+}
+
 describe('DXF import', () => {
   it('round-trips exported LWPOLYLINE rings, units, and holes', () => {
     const project = createEmptyProject();
@@ -75,6 +89,62 @@ describe('DXF import', () => {
     ]), { maxEntities: 1 });
     expect(limited.polylines).toHaveLength(1);
     expect(limited.warnings).toContain('entity-limit-exceeded');
+  });
+
+  it('reports unsupported entity and unit records instead of silently dropping them', () => {
+    const result = importDxfString(dxfDocument([
+      0, 'INSERT', 2, 'BLOCK_A', 10, 0, 20, 0,
+      0, 'SPLINE', 8, 'Curves',
+    ], 1));
+
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      'unsupported-unit:1',
+      'unsupported-entity:INSERT',
+      'unsupported-entity:SPLINE',
+    ]));
+  });
+
+  it('recognizes duplicate-endpoint rings and tessellates bulge arcs', () => {
+    const duplicateClosed = importDxfString(dxfEntityDocument([
+      0, 'LWPOLYLINE', 70, 0, 90, 5,
+      10, 0, 20, 0,
+      10, 10, 20, 0,
+      10, 10, 20, 10,
+      10, 0, 20, 10,
+      10, 0, 20, 0,
+    ]));
+    const bulged = importDxfString(dxfEntityDocument([
+      0, 'LWPOLYLINE', 70, 1, 90, 4,
+      10, 0, 20, 0, 42, 1,
+      10, 10, 20, 0,
+      10, 10, 20, 10,
+      10, 0, 20, 10,
+    ]), { curveSegments: 64 });
+
+    expect(duplicateClosed.polygons).toHaveLength(1);
+    expect(duplicateClosed.polylines).toHaveLength(0);
+    expect(polygonArea(duplicateClosed.polygons[0])).toBeCloseTo(100);
+    expect(bulged.warnings).toEqual([]);
+    expect(bulged.polygons).toHaveLength(1);
+    expect(Math.abs(
+      polygonArea(bulged.polygons[0]) - (100 + Math.PI * 5 ** 2 / 2),
+    )).toBeLessThan(0.1);
+  });
+
+  it('converts metric source units and accepts an explicit full-circle ARC', () => {
+    const metres = importDxfString(dxfDocument([
+      0, 'LINE', 10, 1, 20, 2, 11, 3, 21, 4,
+      0, 'ARC', 10, 0, 20, 0, 40, 2, 50, 0, 51, 360,
+    ], 6), { curveSegments: 16, targetUnit: 'mm' });
+
+    expect(metres.unit).toBe('m');
+    expect(metres.warnings).toEqual([]);
+    expect(metres.polylines[0].points).toEqual([
+      { x: 1_000, y: 2_000 },
+      { x: 3_000, y: 4_000 },
+    ]);
+    expect(metres.polylines[1].points).toHaveLength(17);
+    expect(metres.polylines[1].points[0].x).toBeCloseTo(2_000);
   });
 });
 

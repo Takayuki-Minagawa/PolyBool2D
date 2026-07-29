@@ -84,6 +84,35 @@ describe('section properties', () => {
     expect(result!.ix).toBeCloseTo(8 / 3);
     expect(result!.iy).toBeCloseTo(104 / 3);
   });
+
+  it('ignores finite zero-area holes', () => {
+    const result = calculateSectionProperties({
+      outer: rectangleToRing({ x: 0, y: 0 }, { x: 4, y: 2 }),
+      holes: [[
+        { x: 1, y: 1 },
+        { x: 2, y: 1 },
+        { x: 3, y: 1 },
+      ]],
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.area).toBeCloseTo(8);
+    expect(result!.centroid).toEqual({ x: 2, y: 1 });
+  });
+
+  it('rejects a finite non-degenerate hole whose integral overflows', () => {
+    const huge = 1e308;
+    const result = calculateSectionProperties({
+      outer: rectangleToRing({ x: 0, y: 0 }, { x: 4, y: 2 }),
+      holes: [[
+        { x: huge, y: 0 },
+        { x: 0, y: huge },
+        { x: -huge, y: 0 },
+      ]],
+    });
+
+    expect(result).toBeNull();
+  });
 });
 
 describe('section report', () => {
