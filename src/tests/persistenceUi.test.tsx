@@ -88,8 +88,8 @@ beforeEach(async () => {
   document.body.appendChild(host);
 });
 
-afterEach(() => {
-  if (root) act(() => root!.unmount());
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
   host?.remove();
   root = null;
   host = null;
@@ -98,25 +98,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('persistence UI', () => {
-  it('opens a saved project through the project manager', () => {
+describe('persistence UI', async () => {
+  it('opens a saved project through the project manager', async () => {
     const saved = createEmptyProject();
     saved.name = '保存済み案件';
     expect(saveProjectToLocal(saved)).toBe(true);
 
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
-    act(() => button('プロジェクト').click());
+    await act(async () => button('プロジェクト').click());
     expect(host!.querySelector('[aria-labelledby="project-manager-title"]')).not.toBeNull();
 
-    act(() => button('開く').click());
+    await act(async () => button('開く').click());
     expect(useAppStore.getState().project.name).toBe('保存済み案件');
     expect(host!.querySelector('[aria-labelledby="project-manager-title"]')).toBeNull();
   });
 
-  it('keeps a recovery warning visible after opening a damaged project', () => {
+  it('keeps a recovery warning visible after opening a damaged project', async () => {
     const saved = createEmptyProject();
     saved.name = 'Recoverable project';
     expect(saveProjectToLocal(saved)).toBe(true);
@@ -127,13 +127,13 @@ describe('persistence UI', () => {
       JSON.stringify(raw),
     );
 
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
-    act(() => button('プロジェクト').click());
+    await act(async () => button('プロジェクト').click());
     const card = projectCard('Recoverable project');
-    act(() => {
+    await act(async () => {
       const open = [...card.querySelectorAll('button')].find(
         (element) => element.textContent === '開く',
       )!;
@@ -144,7 +144,7 @@ describe('persistence UI', () => {
     expect(useAppStore.getState().ui.errorMessage).toContain('1');
   });
 
-  it('explains unreadable snapshots and disables only their restore actions', () => {
+  it('explains unreadable snapshots and disables only their restore actions', async () => {
     const saved = createEmptyProject();
     saved.name = 'Unreadable history project';
     expect(saveProjectToLocal(saved)).toBe(true);
@@ -165,16 +165,16 @@ describe('persistence UI', () => {
       }),
     );
 
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
-    act(() => button('プロジェクト').click());
+    await act(async () => button('プロジェクト').click());
     const card = projectCard(saved.name);
     const backupsButton = [...card.querySelectorAll('button')].find(
       (element) => element.textContent === 'バックアップ',
     );
-    act(() => backupsButton!.click());
+    await act(async () => backupsButton!.click());
 
     const restoreButtons = [...card.querySelectorAll<HTMLButtonElement>('button')]
       .filter((element) => element.textContent === '復元');
@@ -186,7 +186,7 @@ describe('persistence UI', () => {
     expect(downloadButton?.disabled).toBe(false);
   });
 
-  it('lets the user download or discard a malformed recovery envelope', () => {
+  it('lets the user download or discard a malformed recovery envelope', async () => {
     const saved = createEmptyProject();
     saved.name = 'Malformed recovery envelope project';
     expect(saveProjectToLocal(saved)).toBe(true);
@@ -195,16 +195,16 @@ describe('persistence UI', () => {
     const malformedEnvelope = '{"savedAt":"truncated"';
     localStorage.setItem(recoveryStorageKey, malformedEnvelope);
 
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
-    act(() => button('プロジェクト').click());
+    await act(async () => button('プロジェクト').click());
     const card = projectCard(saved.name);
     const backupsButton = [...card.querySelectorAll('button')].find(
       (element) => element.textContent === 'バックアップ',
     );
-    act(() => backupsButton!.click());
+    await act(async () => backupsButton!.click());
 
     const recoveryRow = card.querySelector('.recovery-snapshot-row');
     expect(recoveryRow).not.toBeNull();
@@ -222,14 +222,14 @@ describe('persistence UI', () => {
     const discardButton = [...recoveryRow!.querySelectorAll('button')].find(
       (element) => element.textContent === '元データを破棄',
     ) as HTMLButtonElement;
-    act(() => discardButton.click());
+    await act(async () => discardButton.click());
 
     expect(card.querySelector('.recovery-snapshot-row')).toBeNull();
     expect(localStorage.getItem(recoveryStorageKey)).toBeNull();
   });
 
   it('imports supported SVG geometry through the SVG file input', async () => {
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -261,7 +261,7 @@ describe('persistence UI', () => {
   });
 
   it('does not import an asynchronously read file into a newly selected project', async () => {
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -294,7 +294,7 @@ describe('persistence UI', () => {
   });
 
   it('does not overwrite a same-ID project edit made during an import', async () => {
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -333,7 +333,7 @@ describe('persistence UI', () => {
   });
 
   it('shows DXF warning types alongside a successful partial import', async () => {
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -366,7 +366,7 @@ describe('persistence UI', () => {
   });
 
   it('localizes successful closed-polyline repair diagnostics', async () => {
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -399,7 +399,7 @@ describe('persistence UI', () => {
   });
 
   it('localizes structural and block-related DXF warning details', async () => {
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -449,7 +449,7 @@ describe('persistence UI', () => {
     });
 
     try {
-      act(() => {
+      await act(async () => {
         root = createRoot(host!);
         root.render(<Header />);
       });
@@ -478,7 +478,7 @@ describe('persistence UI', () => {
         'errors.invalidPolygon',
       );
     } finally {
-      act(() => {
+      await act(async () => {
         useAppStore.setState({ importDrawingGeometries: originalImport });
       });
     }
@@ -487,7 +487,7 @@ describe('persistence UI', () => {
   it('loads a project through the JSON file input', async () => {
     const imported = createEmptyProject();
     imported.name = 'JSON案件';
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -522,7 +522,7 @@ describe('persistence UI', () => {
       name: 'Older imported snapshot',
       updatedAt: '2026-01-01T00:00:00.000Z',
     };
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -551,7 +551,7 @@ describe('persistence UI', () => {
     raw.settings.gridSize = 1e99;
     raw.unknownTopLevelField = { keep: 'exactly' };
     const sourceJson = JSON.stringify(raw);
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -596,7 +596,7 @@ describe('persistence UI', () => {
         resolveNewer = resolve;
       })),
     });
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -634,7 +634,7 @@ describe('persistence UI', () => {
       configurable: true,
       value: { writeText },
     });
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
@@ -649,25 +649,25 @@ describe('persistence UI', () => {
     expect(useAppStore.getState().ui.statusMessage).toContain('クリップボード');
   });
 
-  it('keeps the live project in sync when renaming the current saved project', () => {
+  it('keeps the live project in sync when renaming the current saved project', async () => {
     const current = createEmptyProject();
     current.name = '変更前';
     expect(saveProjectToLocal(current)).toBe(true);
     useAppStore.getState().loadProject(current);
-    act(() => {
+    await act(async () => {
       root = createRoot(host!);
       root.render(<Header />);
     });
-    act(() => button('プロジェクト').click());
+    await act(async () => button('プロジェクト').click());
     const card = projectCard('変更前');
-    act(() => {
+    await act(async () => {
       const rename = [...card.querySelectorAll('button')].find(
         (element) => element.textContent === '名前変更',
       )!;
       rename.click();
     });
     const input = card.querySelector('input')!;
-    act(() => {
+    await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
       setter?.call(input, '変更後');
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -689,9 +689,9 @@ describe('persistence UI', () => {
       root.render(<App />);
       await flushAsyncWork();
     });
-    act(() => button('プロジェクト').click());
+    await act(async () => button('プロジェクト').click());
     const card = projectCard('削除対象');
-    act(() => {
+    await act(async () => {
       const remove = [...card.querySelectorAll('button')].find(
         (element) => element.textContent === '削除',
       )!;
@@ -721,9 +721,9 @@ describe('persistence UI', () => {
       root.render(<App />);
       await flushAsyncWork();
     });
-    act(() => button(i18n.t('header.projects')).click());
+    await act(async () => button(i18n.t('header.projects')).click());
     const card = projectCard(current.name);
-    act(() => {
+    await act(async () => {
       const remove = [...card.querySelectorAll('button')].find(
         (element) => element.textContent === i18n.t('projects.delete'),
       )!;
@@ -743,7 +743,7 @@ describe('persistence UI', () => {
   });
 });
 
-describe('App persistence guards', () => {
+describe('App persistence guards', async () => {
   it('prevents unloading when the final project save fails', async () => {
     await act(async () => {
       root = createRoot(host!);
@@ -773,7 +773,7 @@ describe('App persistence guards', () => {
   });
 });
 
-describe('shared URL initialization', () => {
+describe('shared URL initialization', async () => {
   it('loads the shared project before the locally active project', async () => {
     const local = createEmptyProject();
     local.name = 'ローカル案件';
@@ -813,7 +813,7 @@ describe('shared URL initialization', () => {
       root.render(<App />);
       await flushAsyncWork();
     });
-    act(() => window.dispatchEvent(new Event('beforeunload')));
+    await act(async () => window.dispatchEvent(new Event('beforeunload')));
 
     expect(useAppStore.getState().project.id).not.toBe(shared.id);
     expect(loadProjectById(shared.id)?.name).toBe('新しいローカル案件');
@@ -1040,7 +1040,7 @@ describe('shared URL initialization', () => {
   });
 });
 
-describe('recoverable local initialization', () => {
+describe('recoverable local initialization', async () => {
   it('warns and preserves original bytes through the first autosave', async () => {
     const saved = createEmptyProject();
     saved.name = 'Recoverable';

@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { boundsForEntities, fitBoundsToView } from '../../app/transform';
+import { useText } from '../common/TaskDialog';
+import type { Entity } from '../../app/projectTypes';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import {
@@ -170,15 +173,82 @@ export function EntityOutlinerSection() {
   const selectEntity = useAppStore((state) => state.selectEntity);
   const updateEntityProperties = useAppStore((state) => state.updateEntityProperties);
 
+  const text = useText();
+  const activeLayerId = useAppStore((state) => state.ui.activeLayerId);
+  const [query, setQuery] = useState('');
+  const [selectedOnly, setSelectedOnly] = useState(false);
+  const [currentLayerOnly, setCurrentLayerOnly] = useState(false);
+  const [groupBy, setGroupBy] = useState<'layer' | 'group'>('layer');
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(project.entities.length < 100 ? project.layers.map((layer) => layer.id) : []));
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const filtered = useMemo(() => project.entities.filter((entity) =>
+    (!selectedOnly || selectedSet.has(entity.id)) &&
+    (!currentLayerOnly || entity.layerId === activeLayerId) &&
+    `${entity.name} ${entity.type} ${entity.type === 'guide-line' ? entity.kind : ''} ${entityTypeLabel(t, entity)}`.toLowerCase().includes(query.toLowerCase()),
+  ), [project.entities, selectedOnly, selectedSet, currentLayerOnly, activeLayerId, query, t]);
+  const groups = useMemo(() => {
+    const member = new Map<string, string>();
+    if (groupBy === 'group') for (const g of project.groups ?? []) for (const id of g.entityIds) if (!member.has(id)) member.set(id, g.id);
+    const grouped = new Map<string, { name: string; entities: Entity[] }>();
+    const names = new Map((groupBy === 'layer' ? project.layers : project.groups ?? []).map((g) => [g.id, g.name]));
+    for (const entity of filtered) {
+      const key = groupBy === 'layer' ? entity.layerId : member.get(entity.id) ?? 'ungrouped';
+      if (!grouped.has(key)) grouped.set(key, { name: names.get(key) ?? text('グループなし', 'Ungrouped'), entities: [] });
+      grouped.get(key)!.entities.push(entity);
+    }
+    return grouped;
+  }, [filtered, groupBy, project.layers, project.groups, text('ja', 'en')]);
+  const rows = useMemo(() => {
+    const result: Array<{ key: string; name: string; count: number; entity?: Entity }> = [];
+    // Small projects keep their familiar immediately editable list.
+    for (const [key, group] of groups) {
+      result.push({ key, name: group.name, count: group.entities.length });
+      if (expanded.has(key) || query || selectedOnly)
+        for (const entity of group.entities) result.push({ key: entity.id, name: entity.name, count: 0, entity });
+    }
+    return result;
+  }, [groups, expanded, project.entities.length, query, selectedOnly]);
+  const rowHeight = 88;
+  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - 2);
+  useEffect(() => { setExpanded(new Set(project.entities.length < 100 ? (groupBy === 'layer' ? project.layers.map((layer) => layer.id) : [...(project.groups ?? []).map((group) => group.id), 'ungrouped']) : [])); setScrollTop(0); if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [project.id, groupBy]);
+  useEffect(() => { setScrollTop(0); if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [query, selectedOnly, currentLayerOnly, rows.length]);
+  function revealSelection() {
+    const entity = project.entities.find((item) => selectedSet.has(item.id));
+    if (!entity) return;
+    setQuery(''); setSelectedOnly(true); setCurrentLayerOnly(false);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }
+  function zoomEntity(entity: Entity) {
+    const bounds = boundsForEntities([entity]);
+    const canvas = document.querySelector('.canvas-wrap');
+    if (bounds && canvas) useAppStore.getState().setView(fitBoundsToView(bounds, canvas.clientWidth, canvas.clientHeight));
+  }
+
   return (
     <section className="entity-outliner-section">
       <h2>{t('outliner.title')}</h2>
+      <div className="outliner-filters">
+        <input type="search" aria-label={text('名前・種類を検索', 'Search name or type')} placeholder={text('名前・種類を検索', 'Search name or type')} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <label><input type="checkbox" checked={selectedOnly} onChange={(e) => setSelectedOnly(e.target.checked)} />{text('選択中のみ', 'Selected only')}</label>
+        <label><input type="checkbox" checked={currentLayerOnly} onChange={(e) => setCurrentLayerOnly(e.target.checked)} />{text('現在のレイヤーのみ', 'Current layer')}</label>
+        <select aria-label={text('一覧の分類', 'Group list by')} value={groupBy} onChange={(e) => setGroupBy(e.target.value as 'layer' | 'group')}><option value="layer">{text('レイヤー', 'Layer')}</option><option value="group">{text('グループ', 'Group')}</option></select>
+        <button disabled={!selectedIds.length} onClick={revealSelection}>{text('選択図形を一覧に表示', 'Reveal selection')}</button>
+        <small>{filtered.length.toLocaleString()} / {project.entities.length.toLocaleString()}</small>
+      </div>
       {project.entities.length === 0 ? (
         <p className="muted-text outliner-empty">{t('outliner.empty')}</p>
       ) : (
-        <div className="entity-outliner-list">
-          {project.entities.map((entity) => {
-            const selected = selectedIds.includes(entity.id);
+        <div className="entity-outliner-list virtual-outliner" ref={scrollRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+          <div style={{ height: rows.length * rowHeight, position: 'relative' }}>
+          {rows.slice(first, first + 8).map((row, index) => {
+            const entity = row.entity;
+            const position = { position: 'absolute' as const, top: (first + index) * rowHeight, height: rowHeight - 4, width: '100%' };
+            if (!entity) return <button key={row.key} className="outliner-heading" style={position} aria-expanded={expanded.has(row.key) || Boolean(query) || selectedOnly} onClick={() => setExpanded((current) => {
+              const next = new Set(current); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next;
+            })}>{expanded.has(row.key) || query || selectedOnly ? '▾' : '▸'} {row.name} ({row.count.toLocaleString()})</button>;
+            const selected = selectedSet.has(entity.id);
             const effectivelyVisible = isEntityEffectivelyVisible(project, entity);
             const effectivelyLocked = isEntityEffectivelyLocked(project, entity);
             const className = [
@@ -191,6 +261,8 @@ export function EntityOutlinerSection() {
               <div
                 key={entity.id}
                 className={className}
+                style={position}
+                onDoubleClick={() => zoomEntity(entity)}
                 data-entity-id={entity.id}
                 role="button"
                 tabIndex={effectivelyVisible && !effectivelyLocked ? 0 : -1}
@@ -204,7 +276,7 @@ export function EntityOutlinerSection() {
                   }
                 }}
               >
-                <span className="entity-type-badge">{entityTypeLabel(t, entity)}</span>
+<button className="entity-type-badge" title={text('図形にズーム', 'Zoom to entity')} onClick={(e) => { e.stopPropagation(); zoomEntity(entity); }}>{entityTypeLabel(t, entity)}</button>
                 <InlineNameInput
                   value={entity.name}
                   label={t('outliner.name', { name: entity.name })}
@@ -251,6 +323,7 @@ export function EntityOutlinerSection() {
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </section>

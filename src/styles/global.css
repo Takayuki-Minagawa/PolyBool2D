@@ -712,3 +712,30 @@ input[type='text'] {
   color: var(--bg-button-active-fg);
   border-color: var(--bg-button-active);
 }
+
+/* Large drawing workflows */
+.task-dialog { width: min(640px, 94vw); max-height: 92vh; }
+.task-dialog.wide { width: min(1120px, 96vw); }
+.task-dialog .body { overflow: auto; }
+.export-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+.export-settings { border: 0; padding: 0; margin: 0; display: grid; gap: 12px; }
+.export-settings label { display: block; }
+.export-settings input:not([type='checkbox']), .export-settings select { width: 100%; padding: 5px; }
+.print-preview { background: var(--bg-app); padding: 16px; }
+.print-preview img { width: 100%; height: auto; max-height: 56vh; background: white; object-fit: contain; }
+.dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.save-indicator { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.save-indicator.saved strong { color: #19854b; }
+.save-indicator.failed { color: var(--cad-invalid-stroke, #e53935); }
+.save-indicator.failed span { max-width: 320px; overflow-wrap: anywhere; }
+.status-bar { flex-wrap: wrap; }
+.outliner-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.outliner-filters input[type='search'] { width: 100%; min-width: 0; }
+.entity-outliner-list.virtual-outliner { display: block; height: 360px; overflow: auto; contain: strict; }
+.outliner-heading { text-align: left; background: var(--bg-toolbar); }
+.viewport-controls { flex-wrap: wrap; }
+.viewport-controls label { white-space: nowrap; }
+.pdf-source-preview { position: relative; background: white; width: 100%; }
+.pdf-source-preview canvas, .pdf-source-preview svg { width: 100%; height: 100%; display: block; }
+.pdf-source-preview svg { position: absolute; inset: 0; cursor: crosshair; }
+@media (max-width: 760px) { .export-layout { grid-template-columns: 1fr; } }

@@ -11,24 +11,31 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "test:e2e": "playwright test",
+    "prepare:pages": "node scripts/prepare-pages.mjs"
   },
   "dependencies": {
     "clipper2-ts": "^2.0.1-18",
     "i18next": "^23.15.1",
+    "jspdf": "^4.2.1",
+    "pdfjs-dist": "^4.10.38",
     "polygon-clipping": "^0.15.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^15.0.2",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
+    "svg2pdf.js": "^2.8.1",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.5.0",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^25.0.0",
     "typescript": "^5.5.4",
     "vite": "^5.4.2",

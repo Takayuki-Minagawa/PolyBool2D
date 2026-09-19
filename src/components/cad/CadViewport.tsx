@@ -1,7 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { displayColor, useDisplayPreferences } from '../../app/displayPreferences';
+import { boundsForEntities, fitBoundsToView } from '../../app/transform';
+import { DEFAULT_PRINT_LAYOUT, printBounds } from '../../persistence/printLayout';
+import { useText } from '../common/TaskDialog';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
-import type { PolygonEntity } from '../../app/projectTypes';
 import {
   isEntityEffectivelyLocked,
   isEntityEffectivelyVisible,
@@ -26,8 +29,13 @@ export function CadViewport() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
 
+  const text = useText();
+  const { printWidths, correctColors } = useDisplayPreferences();
+  const dark = useAppStore((s) => s.ui.theme === 'dark');
   const project = useAppStore((s) => s.project);
   const selectedIds = useAppStore((s) => s.selectedEntityIds);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const entitiesById = useMemo(() => new Map(project.entities.map((e) => [e.id, e])), [project.entities]);
   const view = useAppStore((s) => s.view);
   const preview = useAppStore((s) => s.preview);
   const showGrid = useAppStore((s) => s.ui.showGrid);
@@ -46,9 +54,25 @@ export function CadViewport() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const viewport = useCadViewportInteractions(size);
-  const visibleEntities = project.entities.filter((entity) =>
+  const visibleEntities = useMemo(() => project.entities.filter((entity) =>
     isEntityEffectivelyVisible(project, entity),
-  );
+  ), [project]);
+  const fitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (size.width <= 0 || size.height <= 0 || fitted.current === project.id) return;
+    fitted.current = project.id;
+    const bounds = boundsForEntities(visibleEntities);
+    if (bounds) useAppStore.getState().setView(fitBoundsToView(bounds, size.width, size.height));
+  }, [project.id, visibleEntities, size]);
+  useEffect(() => {
+    const fit = () => {
+      const current = useAppStore.getState().project;
+      const bounds = boundsForEntities(current.entities.filter((entity) => isEntityEffectivelyVisible(current, entity)));
+      if (bounds) useAppStore.getState().setView(fitBoundsToView(bounds, size.width, size.height));
+    };
+    window.addEventListener('polybool-fit-content', fit);
+    return () => window.removeEventListener('polybool-fit-content', fit);
+  }, [size]);
   const contextItems = useMemo<ContextMenuItem[]>(() => {
     const selected = selectedIds;
     const entitiesById = new Map(project.entities.map((entity) => [entity.id, entity]));
@@ -167,8 +191,9 @@ export function CadViewport() {
               key={ent.id}
               entity={ent}
               view={view}
-              selected={selectedIds.includes(ent.id)}
-              color={layerForEntity(project, ent)?.color}
+              selected={selectedSet.has(ent.id)}
+              printWidths={printWidths}
+              color={displayColor(layerForEntity(project, ent)?.color ?? ent.style.stroke, dark, correctColors)}
               invalid={invalidEntityIds.includes(ent.id)}
               locked={isEntityEffectivelyLocked(project, ent)}
               onPointerDown={(e) => viewport.onShapePointerDown(ent.id, e)}
@@ -180,8 +205,10 @@ export function CadViewport() {
               entity={ent}
               view={view}
               unit={project.unit}
-              color={layerForEntity(project, ent)?.color ?? ent.style.stroke}
-              selected={selectedIds.includes(ent.id)}
+              color={displayColor(layerForEntity(project, ent)?.color ?? ent.style.stroke, dark, correctColors)}
+              precision={project.settings.coordinatePrecision}
+              selected={selectedSet.has(ent.id)}
+              printWidths={printWidths}
               locked={isEntityEffectivelyLocked(project, ent)}
               onPointerDown={(e) => viewport.onShapePointerDown(ent.id, e)}
               onContextMenu={(e) => openContextMenu(ent.id, e)}
@@ -189,9 +216,8 @@ export function CadViewport() {
           ),
         )}
         {selectedIds.map((id) => {
-          const ent = project.entities.find(
-            (e) => e.id === id && e.type === 'polygon',
-          ) as PolygonEntity | undefined;
+          const candidate = entitiesById.get(id);
+          const ent = candidate?.type === 'polygon' ? candidate : undefined;
           if (
             !ent ||
             !isEntityEffectivelyVisible(project, ent) ||
@@ -250,6 +276,9 @@ export function CadViewport() {
         />
       )}
       <div className="viewport-controls">
+        <label><input type="checkbox" checked={printWidths} onChange={(e) => useDisplayPreferences.setState({ printWidths: e.target.checked })} />{text('実線幅', 'True widths')}</label>
+        <label><input type="checkbox" checked={correctColors} onChange={(e) => useDisplayPreferences.setState({ correctColors: e.target.checked })} />{text('黒線補正', 'Dark-line contrast')}</label>
+        <button onClick={() => useAppStore.getState().setView(fitBoundsToView(printBounds(project, project.printLayout ?? DEFAULT_PRINT_LAYOUT), size.width, size.height))}>{text('用紙に合わせる', 'Fit paper')}</button>
         <button onClick={() => viewport.zoomBy(1 / ZOOM_BUTTON_FACTOR)} title={t('toolbar.zoomOut')}>
           -
         </button>

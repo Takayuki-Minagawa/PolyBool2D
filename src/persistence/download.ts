@@ -19,5 +19,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Browsers may start consuming the Blob after the click handler returns.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { PolygonEntity, ViewTransform } from '../../app/projectTypes';
 import { worldToScreen } from '../../app/transform';
 
@@ -46,4 +47,3 @@ export const VertexHandles = memo(function VertexHandles({
   entity.geometry.holes.forEach((h, hi) => drawRing(h, 'hole', hi));
   return <g>{handles}</g>;
 });
-import { memo } from 'react';

@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { displayStrokeWidth } from '../../app/displayPreferences';
 import type { PolygonEntity, ViewTransform } from '../../app/projectTypes';
 import { worldToScreen } from '../../app/transform';
 
@@ -6,6 +7,7 @@ type Props = {
   entity: PolygonEntity;
   view: ViewTransform;
   selected: boolean;
+  printWidths?: boolean;
   color?: string;
   invalid?: boolean;
   locked?: boolean;
@@ -29,7 +31,7 @@ function ringToPath(ring: { x: number; y: number }[], view: ViewTransform): stri
 export const PolygonShape = memo(function PolygonShape({
   entity,
   view,
-  selected,
+  selected, printWidths = false,
   color,
   invalid = false,
   locked = false,
@@ -46,7 +48,7 @@ export const PolygonShape = memo(function PolygonShape({
     <path
       d={path}
       fill={color ?? entity.style.fill}
-      fillOpacity={Math.max(0, Math.min(1, entity.style.opacity * 0.28))}
+      fillOpacity={Math.max(0, Math.min(1, (entity.style.fillOpacity ?? entity.style.opacity * 0.28)))}
       fillRule="evenodd"
       stroke={
         invalid
@@ -55,7 +57,10 @@ export const PolygonShape = memo(function PolygonShape({
             ? 'var(--cad-selected-stroke)'
             : color ?? entity.style.stroke
       }
-      strokeWidth={selected ? 2 : 1.4}
+      strokeWidth={selected ? 2 : displayStrokeWidth(entity.style.strokeWidth, view.scale, printWidths)}
+      strokeLinecap={entity.style.lineCap ?? 'round'} strokeLinejoin={entity.style.lineJoin ?? 'round'}
+      strokeDasharray={entity.style.dashArray?.map((v) => v * view.scale).join(' ')}
+      strokeDashoffset={(entity.style.dashOffset ?? 0) * view.scale}
       opacity={entity.visible ? 1 : 0}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}

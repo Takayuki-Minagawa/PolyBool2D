@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { Point } from '../../geometry/types';
 import type { ViewTransform } from '../../app/projectTypes';
 import { worldToScreen } from '../../app/transform';
@@ -11,6 +12,11 @@ type Props = {
   dashed?: boolean;
   locked?: boolean;
   opacity?: number;
+  strokeWidth?: number;
+  dashArray?: number[];
+  dashOffset?: number;
+  lineCap?: 'butt' | 'round' | 'square';
+  lineJoin?: 'miter' | 'round' | 'bevel';
   onPointerDown?: (e: React.PointerEvent<SVGElement>) => void;
   onContextMenu?: (e: React.MouseEvent<SVGElement>) => void;
 };
@@ -26,6 +32,7 @@ export const LinearShape = memo(function LinearShape({
   dashed = false,
   locked = false,
   opacity = 1,
+  strokeWidth = 1.25, dashArray, dashOffset, lineCap = 'round', lineJoin = 'round',
   onPointerDown,
   onContextMenu,
 }: Props) {
@@ -35,8 +42,10 @@ export const LinearShape = memo(function LinearShape({
   const common = {
     fill: 'none',
     stroke,
-    strokeWidth: selected ? 2 : 1.25,
-    strokeDasharray: dashed ? '7 5' : undefined,
+    strokeWidth: selected ? Math.max(2, strokeWidth) : strokeWidth,
+    strokeLinecap: lineCap, strokeLinejoin: lineJoin,
+    strokeDashoffset: dashOffset === undefined ? undefined : dashOffset * view.scale,
+    strokeDasharray: dashArray?.map((v) => v * view.scale).join(' ') || (dashed ? '7 5' : undefined),
     onPointerDown,
     onContextMenu,
     opacity,
@@ -69,4 +78,3 @@ export const LinearShape = memo(function LinearShape({
     />
   );
 });
-import { memo } from 'react';

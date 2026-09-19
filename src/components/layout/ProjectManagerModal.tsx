@@ -21,7 +21,7 @@ import {
   type ProjectBackupSummary,
   type ProjectRecoverySnapshotSummary,
   type StoredProjectSummary,
-} from '../../persistence/localProjectStore';
+} from '../../persistence/durableProjectStore';
 import type {
   ProjectDecodeFailureReason,
   ProjectDecodeResult,
@@ -33,7 +33,7 @@ import { useModalDismiss } from '../common/useModalDismiss';
 type Props = {
   open: boolean;
   onClose: () => void;
-  onLoadProject: (project: Project, options?: { saveCurrent?: boolean }) => boolean;
+  onLoadProject: (project: Project, options?: { saveCurrent?: boolean }) => boolean | Promise<boolean>;
   onPersistenceError: () => void;
 };
 
@@ -95,7 +95,7 @@ export function ProjectManagerModal({
 
   if (!open) return null;
 
-  function openProject(id: string) {
+  async function openProject(id: string) {
     const liveProject = useAppStore.getState().project;
     let project = liveProject;
     let decodeResult: ProjectDecodeSuccess | null = null;
@@ -109,28 +109,28 @@ export function ProjectManagerModal({
       project = result.project;
       decodeResult = result;
     }
-    if (!onLoadProject(project, { saveCurrent: id !== liveProject.id })) return;
+    if (!await onLoadProject(project, { saveCurrent: id !== liveProject.id })) return;
     if (decodeResult) reportDecodeResult(decodeResult);
-    setActiveProjectId(id);
+    await setActiveProjectId(id);
     onClose();
   }
 
-  function commitRename(project: StoredProjectSummary) {
+  async function commitRename(project: StoredProjectSummary) {
     const trimmed = editingName.trim();
     if (!trimmed) return;
     const liveProject = useAppStore.getState().project;
     let renamed: Project | null;
     if (project.id === liveProject.id) {
       renamed = { ...liveProject, name: trimmed, updatedAt: new Date().toISOString() };
-      if (!saveProjectToLocal(renamed)) {
+      if (!await saveProjectToLocal(renamed)) {
         onPersistenceError();
         return;
       }
-      if (!onLoadProject(renamed, { saveCurrent: false })) return;
+      if (!await onLoadProject(renamed, { saveCurrent: false })) return;
     } else {
       const source = loadProjectByIdResult(project.id);
       if (!source || !reportDecodeResult(source)) return;
-      renamed = renameLocalProject(project.id, trimmed);
+      renamed = await renameLocalProject(project.id, trimmed);
       if (!renamed) {
         onPersistenceError();
         return;
@@ -144,9 +144,9 @@ export function ProjectManagerModal({
     }
   }
 
-  function duplicateProject(id: string) {
+  async function duplicateProject(id: string) {
     const liveProject = useAppStore.getState().project;
-    if (id === liveProject.id && !saveProjectToLocal(liveProject)) {
+    if (id === liveProject.id && !await saveProjectToLocal(liveProject)) {
       onPersistenceError();
       return;
     }
@@ -154,17 +154,17 @@ export function ProjectManagerModal({
       const source = loadProjectByIdResult(id);
       if (!source || !reportDecodeResult(source)) return;
     }
-    if (!duplicateLocalProject(id)) {
+    if (!await duplicateLocalProject(id)) {
       onPersistenceError();
       return;
     }
     refresh();
   }
 
-  function deleteProject(id: string) {
+  async function deleteProject(id: string) {
     if (!window.confirm(t('projects.confirmDelete'))) return;
     const deletingCurrent = useAppStore.getState().project.id === id;
-    if (!deleteLocalProject(id)) {
+    if (!await deleteLocalProject(id)) {
       onPersistenceError();
       return;
     }
@@ -200,54 +200,54 @@ export function ProjectManagerModal({
       }
       break;
     }
-    if (!onLoadProject(replacement, { saveCurrent: false })) return;
-    setActiveProjectId(replacementId);
+    if (!await onLoadProject(replacement, { saveCurrent: false })) return;
+    await setActiveProjectId(replacementId);
     if (pendingDecodeFeedback) {
       reportDecodeResult(pendingDecodeFeedback);
     }
   }
 
-  function restoreBackup(projectId: string, backupId: string) {
+  async function restoreBackup(projectId: string, backupId: string) {
     const liveProject = useAppStore.getState().project;
-    if (liveProject.id === projectId && !saveProjectToLocal(liveProject)) {
+    if (liveProject.id === projectId && !await saveProjectToLocal(liveProject)) {
       onPersistenceError();
       return;
     }
-    const restored = restoreProjectBackupResult(projectId, backupId);
+    const restored = await restoreProjectBackupResult(projectId, backupId);
     if (!restored.ok) {
       if (restored.decodeResult) reportDecodeResult(restored.decodeResult);
       else onPersistenceError();
       return;
     }
-    if (!onLoadProject(restored.project, { saveCurrent: false })) return;
+    if (!await onLoadProject(restored.project, { saveCurrent: false })) return;
     reportDecodeResult(restored.decodeResult);
     refresh();
     setBackups(listProjectBackups(projectId));
     setRecoverySnapshot(getProjectRecoverySnapshot(projectId));
   }
 
-  function restoreRecoverySnapshot(projectId: string) {
+  async function restoreRecoverySnapshot(projectId: string) {
     const liveProject = useAppStore.getState().project;
-    if (liveProject.id === projectId && !saveProjectToLocal(liveProject)) {
+    if (liveProject.id === projectId && !await saveProjectToLocal(liveProject)) {
       onPersistenceError();
       return;
     }
-    const restored = restoreProjectRecoverySnapshot(projectId);
+    const restored = await restoreProjectRecoverySnapshot(projectId);
     if (!restored.ok) {
       if (restored.decodeResult) reportDecodeResult(restored.decodeResult);
       else onPersistenceError();
       return;
     }
-    if (!onLoadProject(restored.project, { saveCurrent: false })) return;
+    if (!await onLoadProject(restored.project, { saveCurrent: false })) return;
     reportDecodeResult(restored.decodeResult);
     refresh();
     setBackups(listProjectBackups(projectId));
     setRecoverySnapshot(getProjectRecoverySnapshot(projectId));
   }
 
-  function discardRecoverySnapshot(projectId: string) {
+  async function discardRecoverySnapshot(projectId: string) {
     if (!window.confirm(t('projects.confirmDiscardRecovery'))) return;
-    if (!deleteProjectRecoverySnapshot(projectId)) {
+    if (!await deleteProjectRecoverySnapshot(projectId)) {
       onPersistenceError();
       return;
     }

@@ -14,7 +14,7 @@ class TestResizeObserver {
   disconnect() {}
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   globalThis.ResizeObserver = TestResizeObserver;
   host = document.createElement('div');
@@ -35,15 +35,15 @@ beforeEach(() => {
     'fetch',
     vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '' }),
   );
-  act(() => {
+  await act(async () => {
     root = createRoot(host!);
     root.render(<App />);
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (root) {
-    act(() => root!.unmount());
+    await act(async () => root!.unmount());
   }
   host?.remove();
   root = null;
@@ -64,11 +64,11 @@ function press(key: string, modifiers: { metaKey?: boolean; ctrlKey?: boolean } 
   });
 }
 
-describe('App keyboard shortcuts', () => {
-  it('keeps the global keydown listener stable across project renders', () => {
+describe('App keyboard shortcuts', async () => {
+  it('keeps the global keydown listener stable across project renders', async () => {
     const addListener = vi.spyOn(window, 'addEventListener');
 
-    act(() => {
+    await act(async () => {
       useAppStore
         .getState()
         .addRectangle({ x: 0, y: 0 }, { x: 10, y: 10 });
@@ -80,7 +80,7 @@ describe('App keyboard shortcuts', () => {
     ).toHaveLength(0);
   });
 
-  it('ignores command-modified tool and snap shortcuts', () => {
+  it('ignores command-modified tool and snap shortcuts', async () => {
     press('c', { metaKey: true });
     expect(useAppStore.getState().activeTool).toBe('select');
 
@@ -94,7 +94,7 @@ describe('App keyboard shortcuts', () => {
     expect(useAppStore.getState().ui.snapEnabled).toBe(true);
   });
 
-  it('handles plain tool and snap shortcuts', () => {
+  it('handles plain tool and snap shortcuts', async () => {
     press('c');
     expect(useAppStore.getState().activeTool).toBe('circle');
 
@@ -102,7 +102,7 @@ describe('App keyboard shortcuts', () => {
     expect(useAppStore.getState().ui.snapEnabled).toBe(false);
   });
 
-  it('opens and closes the shortcut modal with ?', () => {
+  it('opens and closes the shortcut modal with ?', async () => {
     press('?');
     expect(useAppStore.getState().ui.shortcutsOpen).toBe(true);
     expect(host!.querySelector('[role="dialog"]')?.textContent).toContain('ショートカット');
@@ -112,8 +112,8 @@ describe('App keyboard shortcuts', () => {
     expect(host!.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('does not route input Enter to the viewport drawing command', () => {
-    act(() => {
+  it('does not route input Enter to the viewport drawing command', async () => {
+    await act(async () => {
       useAppStore.getState().setPreview({
         type: 'polygon',
         points: [
@@ -128,7 +128,7 @@ describe('App keyboard shortcuts', () => {
     host!.appendChild(input);
     input.focus();
 
-    act(() => {
+    await act(async () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
 
@@ -136,9 +136,9 @@ describe('App keyboard shortcuts', () => {
     expect(useAppStore.getState().project.entities).toHaveLength(0);
   });
 
-  it('suppresses deletion, tool shortcuts, and viewport keys behind dialogs', () => {
+  it('suppresses deletion, tool shortcuts, and viewport keys behind dialogs', async () => {
     let entityId = '';
-    act(() => {
+    await act(async () => {
       entityId = useAppStore.getState().addRectangle({ x: 0, y: 0 }, { x: 10, y: 10 })!.id;
       useAppStore.getState().setShortcutsOpen(true);
     });
@@ -147,7 +147,7 @@ describe('App keyboard shortcuts', () => {
     press('p');
     expect(useAppStore.getState().project.entities.some((entity) => entity.id === entityId)).toBe(true);
     expect(useAppStore.getState().activeTool).toBe('select');
-    act(() => {
+    await act(async () => {
       useAppStore.getState().setPreview({
         type: 'polygon',
         points: [
@@ -164,7 +164,7 @@ describe('App keyboard shortcuts', () => {
     press('Escape');
     expect(useAppStore.getState().ui.shortcutsOpen).toBe(false);
 
-    act(() => {
+    await act(async () => {
       useAppStore.getState().setPreview({ type: 'none' });
       useAppStore.getState().setManualOpen(true);
     });
@@ -173,7 +173,7 @@ describe('App keyboard shortcuts', () => {
     press('c');
     expect(useAppStore.getState().project.entities.some((entity) => entity.id === entityId)).toBe(true);
     expect(useAppStore.getState().activeTool).toBe('select');
-    act(() => {
+    await act(async () => {
       useAppStore.getState().setPreview({
         type: 'polygon',
         points: [
@@ -194,7 +194,7 @@ describe('App keyboard shortcuts', () => {
     const projectsButton = [...host!.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'プロジェクト',
     ) as HTMLButtonElement;
-    act(() => {
+    await act(async () => {
       useAppStore.getState().setPreview({ type: 'none' });
       projectsButton.click();
     });
@@ -207,7 +207,7 @@ describe('App keyboard shortcuts', () => {
     expect(host!.querySelector('.project-manager-modal')).toBeNull();
   });
 
-  it('exposes pressed state for tools, grid, snap, and language toggles', () => {
+  it('exposes pressed state for tools, grid, snap, and language toggles', async () => {
     const selectTool = host!.querySelector('button[title^="選択 "]') as HTMLButtonElement;
     const polygonTool = host!.querySelector('button[title^="ポリゴン "]') as HTMLButtonElement;
     const grid = [...host!.querySelectorAll('button')].find((button) =>

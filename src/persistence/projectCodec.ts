@@ -1,3 +1,4 @@
+import { parsePrintLayout } from './printLayout';
 import type {
   Entity,
   Layer,
@@ -472,6 +473,7 @@ function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
   const style = isObject(v.style)
     ? {
         fill: typeof v.style.fill === 'string' ? v.style.fill : DEFAULT_STYLE.fill,
+        ...(isFiniteNumber(v.style.fillOpacity) ? { fillOpacity: clamp(v.style.fillOpacity, 0, 1) } : {}),
         stroke:
           typeof v.style.stroke === 'string' ? v.style.stroke : DEFAULT_STYLE.stroke,
         strokeWidth:
@@ -536,7 +538,7 @@ function parsePolygonEntity(v: Record<string, unknown>): PolygonEntity | null {
       outer: v.geometry.outer.map((p) => ({ x: p.x, y: p.y })),
       holes: v.geometry.holes.map((h) => h.map((p) => ({ x: p.x, y: p.y }))),
     },
-    style,
+    style: { ...style, ...parseStrokeAttributes(v.style) },
     locked: v.locked === true,
     visible: v.visible !== false,
     metadata,
@@ -625,7 +627,7 @@ function parseLinearEntity(v: Record<string, unknown>): LinearEntity | null {
       : kind === 'annotation'
         ? 0
         : undefined,
-    style,
+    style: { ...style, ...parseStrokeAttributes(v.style) },
     locked: v.locked === true,
     visible: v.visible !== false,
   };
@@ -791,6 +793,7 @@ export function decodeProject(json: string): ProjectDecodeResult {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     settings: parseSettings(project.settings),
+    ...(project.printLayout ? { printLayout: parsePrintLayout(project.printLayout) } : {}),
     layers,
     entities,
     groups: groups.values,
@@ -825,3 +828,13 @@ export function deserializeProject(json: string): Project | null {
 
 /** Explicit alias for callers that prefer deserialize naming. */
 export const deserializeProjectResult = decodeProject;
+
+function parseStrokeAttributes(raw: unknown) {
+  if (!isObject(raw)) return {};
+  return {
+    ...(Array.isArray(raw.dashArray) && raw.dashArray.length <= 32 && raw.dashArray.every((n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0) ? { dashArray: raw.dashArray as number[] } : {}),
+    ...(isFiniteNumber(raw.dashOffset) ? { dashOffset: raw.dashOffset } : {}),
+    ...(['butt', 'round', 'square'].includes(String(raw.lineCap)) ? { lineCap: raw.lineCap as 'butt' | 'round' | 'square' } : {}),
+    ...(['miter', 'round', 'bevel'].includes(String(raw.lineJoin)) ? { lineJoin: raw.lineJoin as 'miter' | 'round' | 'bevel' } : {}),
+  };
+}

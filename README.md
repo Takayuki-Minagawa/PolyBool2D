@@ -167,7 +167,7 @@ PolyBool2D は、建築・構造・設計検討などで扱う平面領域を作
 
 ### ローカルプロジェクト
 
-現在のプロジェクトは変更後約 400 ms でブラウザの `localStorage` へ自動保存されます。
+現在のプロジェクトは変更後約 400 ms でブラウザの `IndexedDB` へ自動保存されます。
 ヘッダーの **プロジェクト** から、保存済みプロジェクトを開く、名前変更、複製、削除できます。
 旧単一キー `pb2d.project` のデータは初回に複数プロジェクト形式へ移行されます。
 
@@ -181,6 +181,7 @@ PolyBool2D は、建築・構造・設計検討などで扱う平面領域を作
 | 形式 | 読込 | 書出 | 内容 |
 | --- | :---: | :---: | --- |
 | Project JSON | ✓ | ✓ | レイヤー、設定、ポリゴン、線要素を含む完全なプロジェクト |
+| PDF | ✓ | ✓ | ページ・回転・矩形切り出し・実寸校正によるベクター取込。用紙寸法と縮尺を保った複数ページ出力 |
 | SVG | ✓ | ✓ | 対応図形をポリゴン化。書出は表示中の図形・線・寸法・注記 |
 | PNG | — | ✓ | SVG 書出結果を透明背景のラスター画像へ変換。長辺は最大 4096 px |
 | DXF | ✓ | ✓ | `LWPOLYLINE` / `POLYLINE` / `LINE` / `ARC` / `CIRCLE` を読込。寸法は線と `TEXT` に分解して出力 |
@@ -242,7 +243,7 @@ src/
 │   ├── cad/             # ビューポート、プレビュー、HUD、右クリック、図形描画
 │   └── layout/          # ヘッダー、ツールバー、パネル、プロジェクト・マニュアル UI
 ├── geometry/            # 純粋な幾何処理、検証、空間インデックス
-├── persistence/         # localStorage、各種 import/export、共有 URL
+├── persistence/         # IndexedDB、旧localStorage移行、各種 import/export、共有 URL
 ├── i18n/                # 翻訳と日英マニュアル
 ├── styles/              # グローバル CSS とテーマ
 └── tests/               # Vitest テスト
@@ -268,9 +269,21 @@ npm run build       # production build
 npm run preview     # build 結果のローカル確認
 ```
 
-GitHub Actions は Pull Request と `main` への push で型チェック、テスト、ビルドを実行します。
-`.github/workflows/deploy.yml` は `main` の成果物を GitHub Pages へデプロイします。
-Vite の `base` は `GITHUB_REPOSITORY` から決定するため Project Pages に対応します。
+型チェック・テスト・ビルドはすべてローカルで実行します。push / Pull Request による
+GitHub Actions の自動起動はありません。`.github/workflows/deploy.yml` は手動実行専用で、
+事前にローカルで作成した成果物のアップロードと GitHub Pages への登録だけを行います。
+
+```bash
+npm run prepare:pages  # ローカル検証 + /PolyBool2D/ 用のビルド → .pages-artifact/
+# 実図面を含むブラウザーテスト（必要なら CHROME_PATH で Chrome を指定）
+POLYBOOL_SAMPLE_DIR=/path/to/drawings npm run test:e2e
+```
+
+公開する場合は `.pages-artifact/` の内容だけを `pages-artifact` ブランチへコミットして push し、
+そのコミット SHA を `deploy.yml` の `artifact_ref` に渡して手動実行してください。
+ソースのコミット SHA を指定するとアプリの成果物にはならないため、必ずビルド済みブランチの
+コミットを使用します。準備スクリプトは commit / push / Actions 実行を行いません。
+詳細と今回の検証結果は [操作改善の実装記録](操作改善_実装記録.md) を参照してください。
 
 ## 既知の制限
 

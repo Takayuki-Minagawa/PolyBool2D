@@ -1,3 +1,4 @@
+import { PdfImportDialog } from './PdfImportDialog';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
@@ -8,7 +9,9 @@ import {
   exportProjectFile,
   importProjectFileSourceResult,
 } from '../../persistence/projectFileIo';
-import { exportSvgFile } from '../../persistence/svgExport';
+import { ExportDialog } from './ExportDialog';
+import { LineCleanupDialog } from './LineCleanupDialog';
+import { TaskDialog, useText } from '../common/TaskDialog';
 import { exportAreaCsvFile, exportVertexCsvFile } from '../../persistence/csvExport';
 import { exportPngFile } from '../../persistence/pngExport';
 import { exportDxfFile } from '../../persistence/dxfExport';
@@ -32,7 +35,7 @@ import {
   deleteProjectRecoverySnapshot,
   preserveProjectRecoverySource,
   saveProjectToLocal,
-} from '../../persistence/localProjectStore';
+} from '../../persistence/durableProjectStore';
 import { ProjectManagerModal } from './ProjectManagerModal';
 
 const DXF_WARNING_CODES = new Set([
@@ -64,6 +67,15 @@ const DXF_WARNING_CODES = new Set([
 
 export function Header() {
   const { t } = useTranslation();
+  const text = useText();
+  const [exportFormat, setExportFormat] = useState<'json' | 'svg' | 'pdf' | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const pdfInput = useRef<HTMLInputElement>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [rescue, setRescue] = useState<{ project: Project; resolve: (ok: boolean) => void } | null>(null);
+  const [rescueDownloaded, setRescueDownloaded] = useState(false);
+  const [pendingUnsavedProject, setPendingUnsavedProject] = useState<Project | null>(null);
+  const [preflight, setPreflight] = useState<{ name: string; count: number; size: number; available?: number; resolve: (ok: boolean) => void } | null>(null);
   const project = useAppStore((s) => s.project);
   const undo = useAppStore((s) => s.undo);
   const redo = useAppStore((s) => s.redo);
@@ -102,6 +114,7 @@ export function Header() {
 
   function reportSuccess(message: string) {
     setErrorMessage(null);
+    window.dispatchEvent(new Event('polybool-fit-content'));
     setStatusMessage(message);
   }
 
@@ -122,19 +135,28 @@ export function Header() {
     return false;
   }
 
-  function saveCurrentProject(): boolean {
-    const saved = saveProjectToLocal(useAppStore.getState().project);
-    if (!saved) reportError('errors.saveFailed');
-    return saved;
+  async function saveCurrentProject(): Promise<boolean> {
+    const current = useAppStore.getState().project;
+    const saved = await saveProjectToLocal(current);
+    if (useAppStore.getState().project !== current) {
+      reportError('errors.projectChangedDuringImport');
+      return false;
+    }
+    if (saved) return true;
+    reportError('errors.saveFailed');
+    return new Promise<boolean>((resolve) => {
+      setRescueDownloaded(false);
+      setRescue({ project: useAppStore.getState().project, resolve });
+    });
   }
 
-  function onNewProject() {
-    if (!saveCurrentProject()) return;
+  async function onNewProject() {
+    if (!await saveCurrentProject()) return;
     reset();
   }
 
-  function openProjectManager() {
-    if (!saveCurrentProject()) return;
+  async function openProjectManager() {
+    if (!await saveCurrentProject()) return;
     setProjectManagerOpen(true);
   }
 
@@ -152,7 +174,13 @@ export function Header() {
       reportError(feedback ?? 'errors.importInvalid');
       return;
     }
-    if (!saveCurrentProject()) return;
+    if (result.project.entities.length > 1000) {
+      const estimate = await navigator.storage?.estimate?.().catch(() => undefined);
+      const accepted = await new Promise<boolean>((resolve) => setPreflight({ name: result.project.name, count: result.project.entities.length, size: file.size, available: estimate?.quota === undefined ? undefined : estimate.quota - (estimate.usage ?? 0), resolve }));
+      if (!accepted || !importTargetStillCurrent(targetProject, generation)) return;
+    }
+    if (!await saveCurrentProject()) return;
+    if (!importTargetStillCurrent(targetProject, generation)) return;
     const now = new Date().toISOString();
     const independentProject = {
       ...result.project,
@@ -163,7 +191,7 @@ export function Header() {
     const stagedRecovery = result.sourceWasNormalized;
     if (
       stagedRecovery &&
-      !preserveProjectRecoverySource(
+      !await preserveProjectRecoverySource(
         independentProject.id,
         source.sourceJson,
         result.project.id,
@@ -172,14 +200,20 @@ export function Header() {
       reportError('errors.saveFailed');
       return;
     }
-    if (!saveProjectToLocal(independentProject)) {
+    const importedSaved = await saveProjectToLocal(independentProject);
+    if (!importTargetStillCurrent(targetProject, generation)) return;
+    if (!importedSaved) {
       if (stagedRecovery) {
-        deleteProjectRecoverySnapshot(independentProject.id);
+        await deleteProjectRecoverySnapshot(independentProject.id);
       }
       reportError('errors.saveFailed');
+      // Offer an explicit in-memory opening: the source file and the previous
+      // project's durable or downloaded copy are both still available.
+      setPendingUnsavedProject(independentProject);
       return;
     }
     loadProject(independentProject);
+    window.dispatchEvent(new Event('polybool-fit-content'));
     if (feedback) reportError(feedback);
     else {
       reportSuccess(t('status.jsonImported', { name: independentProject.name }));
@@ -203,6 +237,7 @@ export function Header() {
       reportError(importError ?? 'errors.svgImportInvalid');
       return;
     }
+    window.dispatchEvent(new Event('polybool-fit-content'));
     setStatusMessage(t('status.svgImported', {
       count: imported,
       warnings: result.warnings.length,
@@ -245,6 +280,7 @@ export function Header() {
         ? `: ${warningTypes}${result.warnings.length > 5 ? ', …' : ''}`
         : '',
     });
+    window.dispatchEvent(new Event('polybool-fit-content'));
     setStatusMessage(message);
     if (!importError) setErrorMessage(null);
   }
@@ -264,6 +300,7 @@ export function Header() {
       reportError(importError ?? 'errors.geoJsonImportInvalid');
       return;
     }
+    window.dispatchEvent(new Event('polybool-fit-content'));
     setStatusMessage(t('status.geoJsonImported', {
       count,
       warnings: result.warnings.length,
@@ -431,10 +468,12 @@ export function Header() {
       </div>
 
       <div className="group">
-        <button onClick={() => exportProjectFile(project)} title="JSON">
+        <button onClick={() => pdfInput.current?.click()}>{text('PDF読込', 'Import PDF')}</button>
+        <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const file=e.target.files?.[0];e.target.value='';if(file)setPdfFile(file); }} />
+        <button onClick={() => setExportFormat('json')} title="JSON">
           {t('header.exportJson')}
         </button>
-        <button onClick={() => exportSvgFile(project)} title="SVG">
+        <button onClick={() => setExportFormat('svg')} title="SVG">
           {t('header.exportSvg')}
         </button>
         <button
@@ -468,6 +507,8 @@ export function Header() {
       </div>
 
       <div className="group">
+        <button onClick={() => setExportFormat('pdf')}>{text('印刷 / PDF', 'Print / PDF')}</button>
+        <button onClick={() => setCleanupOpen(true)}>{text('線整理', 'Clean lines')}</button>
         <button onClick={() => undo()} disabled={!canUndo} title="Ctrl/⌘+Z">
           {t('header.undo')}
         </button>
@@ -513,11 +554,30 @@ export function Header() {
         </button>
       </div>
       </header>
+      {pdfFile && <PdfImportDialog file={pdfFile} onClose={() => setPdfFile(null)} beforeImport={saveCurrentProject} onImported={(p) => { loadProject(p); window.dispatchEvent(new Event('polybool-fit-content')); }} />}
+      {exportFormat && <ExportDialog initialFormat={exportFormat} onClose={() => setExportFormat(null)} />}
+      {cleanupOpen && <LineCleanupDialog onClose={() => setCleanupOpen(false)} />}
+      {pendingUnsavedProject && <TaskDialog title={text('読込先の図面を保存できません', 'The imported drawing could not be saved')} onClose={() => setPendingUnsavedProject(null)}>
+        <p>{text('現在の図面は保存またはJSONへ退避済みです。読み込む元のJSONファイルを保持したまま、未保存の図面として開けます。', 'The current drawing has been saved or rescued to JSON. Keep the source JSON file; you can open this drawing without browser storage.')}</p>
+        <button onClick={() => { loadProject(pendingUnsavedProject); setPendingUnsavedProject(null); window.dispatchEvent(new Event('polybool-fit-content')); }}>{text('未保存のまま開く', 'Open without saving')}</button>
+      </TaskDialog>}
+      {preflight && <TaskDialog title={text('図面の読込確認', 'Drawing import summary')} onClose={() => { preflight.resolve(false); setPreflight(null); }}>
+        <p>{preflight.name}</p><p>{preflight.count.toLocaleString()} {text('要素', 'entities')} · {(preflight.size / 1024 / 1024).toFixed(2)} MB</p>
+        <p>{text('ブラウザー保存領域の空き容量（概算）: ', 'Estimated browser storage available: ')}{preflight.available === undefined ? text('取得できません', 'Unavailable') : `${(preflight.available / 1024 / 1024).toFixed(1)} MB`}</p>
+        <p>{text('現在の図面を保存してから、新しい図面として読み込みます。保存できない場合はJSON退避を選べます。', 'Save the current drawing, then import as a new project. If saving fails, a JSON rescue is available.')}</p>
+        <button onClick={() => { preflight.resolve(true); setPreflight(null); }}>{text('読み込む', 'Import')}</button>
+      </TaskDialog>}
+      {rescue && <TaskDialog title={text('切り替え前に図面を退避', 'Rescue drawing before switching')} onClose={() => { rescue.resolve(false); setRescue(null); }}>
+        <p>{text('ブラウザー保存に失敗しました。JSONファイルの保存を確認すれば切り替えを続けられます。', 'Browser storage failed. Save a JSON file and confirm its download to continue switching.')}</p>
+        <button onClick={() => { exportProjectFile(rescue.project); setRescueDownloaded(true); }}>{text('現在の図面をJSONに退避', 'Download current drawing as JSON')}</button>
+        <button onClick={async () => { if (await saveProjectToLocal(rescue.project)) { rescue.resolve(true); setRescue(null); } }}>{text('保存を再試行', 'Retry save')}</button>
+        <button disabled={!rescueDownloaded || project !== rescue.project} onClick={() => { rescue.resolve(true); setRescue(null); }}>{text('ファイルの保存を確認して切り替え', 'I verified the saved file; continue')}</button>
+      </TaskDialog>}
       <ProjectManagerModal
         open={projectManagerOpen}
         onClose={() => setProjectManagerOpen(false)}
-        onLoadProject={(nextProject, options = {}) => {
-          if (options.saveCurrent !== false && !saveCurrentProject()) return false;
+        onLoadProject={async (nextProject, options = {}) => {
+          if (options.saveCurrent !== false && !await saveCurrentProject()) return false;
           loadProject(nextProject);
           reportSuccess(t('status.projectLoaded', { name: nextProject.name }));
           return true;

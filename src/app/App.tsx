@@ -13,11 +13,12 @@ import { makeId } from './idUtils';
 import { projectDecodeFeedback } from './projectDecodeFeedback';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
 import {
+  useSaveState,
   deleteProjectRecoverySnapshot,
   loadProjectFromLocalResult,
   preserveProjectRecoverySource,
   saveProjectToLocal,
-} from '../persistence/localProjectStore';
+} from '../persistence/durableProjectStore';
 import {
   decodeProjectFromShareHashSourceOutcome,
   SHARE_HASH_PREFIX,
@@ -93,7 +94,7 @@ export function App() {
 
     let cancelled = false;
     void decodeProjectFromShareHashSourceOutcome(hash)
-      .then((sharedAttempt) => {
+      .then(async (sharedAttempt) => {
         if (cancelled) return;
         if (!sharedAttempt.ok) {
           finishWithLocalFallback(
@@ -118,7 +119,7 @@ export function App() {
           if (
             sharedResult.sourceWasNormalized &&
             (
-              !preserveProjectRecoverySource(
+              !await preserveProjectRecoverySource(
                 independentProject.id,
                 sharedSource.sourceJson,
                 sharedResult.project.id,
@@ -132,9 +133,9 @@ export function App() {
           // Do not remove the only URL copy until both the normalized project
           // and the exact pre-normalization bytes are durable under the new
           // local ID.
-          if (!saveProjectToLocal(independentProject)) {
+          if (!await saveProjectToLocal(independentProject)) {
             if (stagedRecovery) {
-              deleteProjectRecoverySnapshot(independentProject.id);
+              await deleteProjectRecoverySnapshot(independentProject.id);
             }
             finishWithLocalFallback(i18n.t('errors.saveFailed'), false);
             return;
@@ -174,11 +175,12 @@ export function App() {
     };
   }, [i18n, loadProject, setErrorMessage]);
 
-  // Auto-save to localStorage (debounced)
+  // Commit the complete project and backup transaction to IndexedDB (debounced).
   useEffect(() => {
     if (!initialized) return;
-    const t = setTimeout(() => {
-      if (!saveProjectToLocal(project)) setErrorMessage('errors.saveFailed');
+    const t = setTimeout(async () => {
+      if (latestProjectRef.current !== project) return;
+      if (!await saveProjectToLocal(project)) setErrorMessage('errors.saveFailed');
     }, 400);
     return () => clearTimeout(t);
   }, [initialized, project, setErrorMessage]);
@@ -187,15 +189,20 @@ export function App() {
   // final guard covers closing or reloading the tab before the timer fires.
   useEffect(() => {
     if (!initialized) return;
-    const flush = (event?: BeforeUnloadEvent) => {
-      if (saveProjectToLocal(latestProjectRef.current) || !event) return;
+    const flush = (event: BeforeUnloadEvent) => {
+      if (useSaveState.getState().project === latestProjectRef.current) return;
+      void saveProjectToLocal(latestProjectRef.current);
       event.preventDefault();
       event.returnValue = '';
     };
+    const background = () => {
+      if (document.visibilityState === 'hidden') void saveProjectToLocal(latestProjectRef.current);
+    };
     window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', background);
     return () => {
       window.removeEventListener('beforeunload', flush);
-      flush();
+      document.removeEventListener('visibilitychange', background);
     };
   }, [initialized]);
 

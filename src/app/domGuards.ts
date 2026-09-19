@@ -13,7 +13,8 @@ export type ModalUiState = {
 };
 
 export function hasBlockingModal(ui: ModalUiState): boolean {
-  return ui.manualOpen || ui.shortcutsOpen || ui.projectManagerOpen;
+  return ui.manualOpen || ui.shortcutsOpen || ui.projectManagerOpen ||
+    (typeof document !== 'undefined' && document.querySelector('[role="dialog"][aria-modal="true"]') !== null);
 }
 
 /** Context menus remain DOM-local and are the only queried blocking overlay. */

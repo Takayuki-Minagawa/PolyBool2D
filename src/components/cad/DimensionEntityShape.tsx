@@ -1,4 +1,6 @@
 import { memo } from 'react';
+import { displayStrokeWidth } from '../../app/displayPreferences';
+import { entityTextHeight, dimensionLabel } from '../../persistence/dimensionExport';
 import type {
   LinearEntity,
   Unit,
@@ -7,7 +9,6 @@ import type {
 import { worldToScreen } from '../../app/transform';
 import {
   angularDimensionGeometry,
-  formatDimension,
   linearDimensionGeometry,
 } from '../../geometry/dimensions';
 import { LinearShape } from './LinearShape';
@@ -18,6 +19,8 @@ type Props = {
   unit: Unit;
   color: string;
   selected: boolean;
+  printWidths?: boolean;
+  precision?: number;
   locked?: boolean;
   onPointerDown?: (event: React.PointerEvent<SVGElement>) => void;
   onContextMenu?: (event: React.MouseEvent<SVGElement>) => void;
@@ -45,7 +48,7 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
   view,
   unit,
   color,
-  selected,
+  selected, printWidths = false, precision = 3,
   locked = false,
   onPointerDown,
   onContextMenu,
@@ -53,7 +56,9 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
   const stroke = selected ? 'var(--cad-selected-stroke)' : color;
   const common = {
     stroke,
-    strokeWidth: selected ? 2 : 1.25,
+    strokeWidth: selected ? 2 : displayStrokeWidth(entity.style.strokeWidth, view.scale, printWidths),
+    strokeLinecap: entity.style.lineCap ?? 'round',
+    strokeLinejoin: entity.style.lineJoin ?? 'round',
     fill: 'none',
     opacity: entity.style.opacity,
     onPointerDown,
@@ -71,9 +76,10 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
         x={screen.x}
         y={screen.y}
         fill={stroke}
-        fontSize={Math.max(10, (entity.textHeight ?? 2.5) * view.scale)}
+        fontSize={Math.max(printWidths ? 0 : 10, entityTextHeight(entity) * view.scale)}
+        textAnchor="middle"
         transform={`rotate(${-entity.rotationDeg! || 0} ${screen.x} ${screen.y})`}
-        dominantBaseline="central"
+        dominantBaseline="middle"
         stroke="none"
       >
         {entity.label ?? entity.name}
@@ -97,10 +103,7 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
       worldToScreen(point, view),
     );
     const label = worldToScreen(geometry.labelPosition, view);
-    const text = entity.label ?? formatDimension(geometry.value, {
-      precision: entity.precision,
-      unit,
-    });
+    const text = dimensionLabel(entity, unit, precision);
     return (
       <g {...common}>
         <line
@@ -125,8 +128,10 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
         />
         <text
           x={label.x}
-          y={label.y - 5}
-          className="saved-dimension-text"
+          y={label.y}
+          transform={`rotate(${-(geometry.angleRad ?? 0) * 180 / Math.PI} ${label.x} ${label.y})`}
+          fontSize={Math.max(printWidths ? 0 : 10, entityTextHeight(entity) * view.scale)}
+          dominantBaseline="middle"
           textAnchor="middle"
           stroke="none"
           fill={stroke}
@@ -156,10 +161,7 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
     const last = worldToScreen(geometry.arcPoints.at(-1)!, view);
     const arc = geometry.arcPoints.map((point) => worldToScreen(point, view));
     const label = worldToScreen(geometry.labelPosition, view);
-    const text = entity.label ?? formatDimension(
-      (geometry.valueRad * 180) / Math.PI,
-      { precision: entity.precision, suffix: '°' },
-    );
+    const text = dimensionLabel(entity, unit, precision);
     return (
       <g {...common}>
         <line x1={center.x} y1={center.y} x2={first.x} y2={first.y} />
@@ -171,8 +173,9 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
         />
         <text
           x={label.x}
-          y={label.y - 5}
-          className="saved-dimension-text"
+          y={label.y}
+          fontSize={Math.max(printWidths ? 0 : 10, entityTextHeight(entity) * view.scale)}
+          dominantBaseline="middle"
           textAnchor="middle"
           stroke="none"
           fill={stroke}
@@ -193,6 +196,9 @@ export const DimensionEntityShape = memo(function DimensionEntityShape({
       dashed={entity.kind === 'guide'}
       locked={locked}
       opacity={entity.style.opacity}
+      strokeWidth={displayStrokeWidth(entity.style.strokeWidth, view.scale, printWidths)}
+      dashArray={entity.style.dashArray} dashOffset={entity.style.dashOffset}
+      lineCap={entity.style.lineCap} lineJoin={entity.style.lineJoin}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
     />

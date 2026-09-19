@@ -1,10 +1,11 @@
+import { projectFilename } from './saveFile';
 import type { Project } from '../app/projectTypes';
 import {
   decodeProject,
   serializeProject,
   type ProjectDecodeResult,
 } from './projectCodec';
-import { downloadText, timestamp } from './download';
+import { downloadText } from './download';
 
 export type ProjectFileSourceResult = {
   sourceJson: string;
@@ -14,7 +15,7 @@ export type ProjectFileSourceResult = {
 export function exportProjectFile(p: Project): void {
   downloadText(
     serializeProject(p),
-    `cad-project-${timestamp()}.json`,
+    projectFilename(p.name, 'polybool2d.json'),
     'application/json',
   );
 }

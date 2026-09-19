@@ -226,7 +226,7 @@ An inward offset or repair can split into several polygons or return no material
 
 ## 8. Projects and backups
 
-Changes auto-save to browser `localStorage` after about 400 ms. Open **Projects** in the header to
+Changes auto-save to browser `IndexedDB` after about 400 ms. Open **Projects** in the header to
 open, rename, duplicate or delete multiple locally saved projects.
 
 Whenever saved content changes, the previous valid save is retained. Each project keeps up to
@@ -285,3 +285,20 @@ interpreted and displayed.
 - DXF holes are independent closed polylines; no DWG, region or hatch data is generated.
 - Local saves depend on browser storage and there is no real-time collaborative editing.
 - 3D, BIM and DWG import/export are not supported.
+
+
+## Additional workflows: large drawings, paper and PDF
+
+Projects and up to ten backups now use **IndexedDB**. Legacy localStorage records are removed only after migration commits. The status bar shows unsaved/saving/saved/failed, destination, timestamp, the storage error, retry and JSON rescue controls. Save or download the current project before switching; verify a fallback browser download before proceeding. Imports above 1,000 entities show their count, size and estimated available quota. JSON and geometry imports fit the drawing automatically.
+
+The outliner renders only visible rows. Group by layer or entity group, search names/types, filter selected entities/current layer, reveal a selection, or zoom using a type button or double-click. Lists with 100 or more entities start collapsed. **True widths** uses model stroke widths, caps, joins and dash patterns. **Dark-line contrast** affects the viewport only.
+
+**Print / PDF** supports A3/A4, orientation, scale, margins, lower-left print origin and an optional frame. Apply settings to save them in the drawing. Select saved projects for additional pages, in selection order, and preview each page. All pages use the same settings. A 6000 mm line at 1/50 is 120 mm on paper; print the PDF at 100% actual size. Clipping warnings estimate text bounds. Non-Latin native annotations use browser-shaped raster text in PDFs; drawing paths and imported outline geometry remain vectors.
+
+JSON/SVG/PDF exports start with the project name. Supported browsers provide a destination picker and report completed writes; fallback downloads report only that the download started, with browser downloads providing destination/completion. PDF conversion reports page progress and supports cancellation between pages.
+
+**Clean lines** removes exact duplicate polylines with matching layer/style/group and optionally joins unbranched solid chains. Review counts/affected lines, apply, and undo as needed. Locked or constrained entities are retained; dashed lines are not joined.
+
+**Import PDF** supports page selection, 90-degree rotation, two-corner crop, and two-point calibration to a known model distance. Each page becomes a separate project, with separate layers for lines, fills and editable text. Dashes remain dash patterns and duplicate lines are removed. Fonts, text colors and text positions are approximate. Arbitrary PDF clipping, patterns, images and exact glyph outlines are unsupported; fills crossing a crop boundary are omitted. Review warnings and compare with the original PDF.
+
+Concurrent tabs detect storage conflicts instead of overwriting each other. Export JSON and reload before continuing.

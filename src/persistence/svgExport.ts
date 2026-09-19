@@ -1,3 +1,4 @@
+import { paperSize, printBounds, type PrintLayout } from './printLayout';
 import type { Entity, LinearEntity, Project } from '../app/projectTypes';
 import type { PolygonGeometry, Ring } from '../geometry/types';
 import { boundsForEntities } from '../app/transform';
@@ -155,7 +156,7 @@ function linearEntitySvg(
         opacity,
         shiftX,
         flipY,
-      ),
+      ).replace('<line ', '<line marker-start="url(#dimension-arrow)" marker-end="url(#dimension-arrow)" '),
       svgText(
         label,
         geometry.labelPosition,
@@ -202,7 +203,7 @@ function linearEntitySvg(
         opacity,
         shiftX,
         flipY,
-      ),
+      ).replace('<polyline ', '<polyline marker-start="url(#dimension-arrow)" marker-end="url(#dimension-arrow)" '),
       svgText(
         label,
         geometry.labelPosition,
@@ -229,7 +230,7 @@ function linearEntitySvg(
  * Build a standalone SVG document string for visible exportable geometry.
  * World Y is up; SVG Y is down, so Y is flipped about the content bounds.
  */
-export function buildSvg(project: Project): string {
+export function buildSvg(project: Project, layout?: PrintLayout): string {
   const entities = project.entities.filter(
     (entity): entity is Entity =>
       isEntityEffectivelyVisible(project, entity) &&
@@ -248,30 +249,40 @@ export function buildSvg(project: Project): string {
     maxX: 100,
     maxY: 100,
   };
-  const width = bounds.maxX - bounds.minX + PADDING * 2;
-  const height = bounds.maxY - bounds.minY + PADDING * 2;
+  if (layout) bounds = printBounds(project, layout);
+  const padding = layout ? 0 : PADDING;
+  const width = bounds.maxX - bounds.minX + padding * 2;
+  const height = bounds.maxY - bounds.minY + padding * 2;
   // Map world coords into a viewBox whose origin is the padded top-left.
-  const flipY = (y: number) => bounds.maxY - y + PADDING;
-  const shiftX = (x: number) => x - bounds.minX + PADDING;
+  const flipY = (y: number) => bounds.maxY - y + padding;
+  const shiftX = (x: number) => x - bounds.minX + padding;
 
   const shapes = entities
     .map((e) => {
-      const color = layerForEntity(project, e)?.color ?? STROKE;
+      const color = layerForEntity(project, e)?.color ?? (e.style.stroke.startsWith('var(') ? STROKE : e.style.stroke);
+      const attributes = `stroke-linecap="${e.style.lineCap ?? 'round'}" stroke-linejoin="${e.style.lineJoin ?? 'round'}" stroke-dasharray="${(e.style.dashArray ?? []).join(' ')}" stroke-dashoffset="${e.style.dashOffset ?? 0}"`;
       if (e.type === 'polygon') {
         const shifted: PolygonGeometry = {
           outer: e.geometry.outer.map((p) => ({ x: shiftX(p.x), y: p.y })),
           holes: e.geometry.holes.map((h) => h.map((p) => ({ x: shiftX(p.x), y: p.y }))),
         };
         const d = polygonToPath(shifted, flipY);
-        return `  <path d="${xmlAttribute(d)}" fill="${xmlAttribute(color || FILL)}" fill-opacity="${Math.max(0, Math.min(1, e.style.opacity * 0.28))}" fill-rule="evenodd" stroke="${xmlAttribute(color)}" stroke-width="${fmt(e.style.strokeWidth)}" />`;
+        return `  <path ${attributes} d="${xmlAttribute(d)}" fill="${xmlAttribute(color || FILL)}" fill-opacity="${Math.max(0, Math.min(1, (e.style.fillOpacity ?? e.style.opacity * 0.28)))}" fill-rule="evenodd" stroke="${xmlAttribute(color)}" stroke-width="${fmt(e.style.strokeWidth)}" />`;
       }
-      return `  ${linearEntitySvg(e, project, color, shiftX, flipY)}`;
+      return `  <g ${attributes}>${linearEntitySvg(e, project, color, shiftX, flipY)}</g>`;
     })
     .join('\n');
 
+  const physical = layout ? paperSize(layout) : null;
+  const inset = layout ? layout.margin * width / physical![0] : 0;
+  const printable = `<rect x="${fmt(inset)}" y="${fmt(inset)}" width="${fmt(width - inset * 2)}" height="${fmt(height - inset * 2)}" />`;
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(width)}" height="${fmt(height)}" viewBox="0 0 ${fmt(width)} ${fmt(height)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${physical ? physical[0] + 'mm' : fmt(width)}" height="${physical ? physical[1] + 'mm' : fmt(height)}" viewBox="0 0 ${fmt(width)} ${fmt(height)}">`,
+    entities.some((entity) => entity.type === 'guide-line' && ['linear-dimension', 'angular-dimension'].includes(entity.kind)) ? '<defs><marker id="dimension-arrow" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 7 0 L 0 3.5 L 7 7 Z" fill="context-stroke" /></marker></defs>' : '',
+    layout ? `<defs><clipPath id="print-clip">${printable}</clipPath></defs><g clip-path="url(#print-clip)">` : '',
     shapes,
+    layout ? '</g>' : '',
+    layout?.frame ? `<g fill="none" stroke="#000" stroke-width="${width / physical![0] * 0.2}">${printable}</g>` : '',
     '</svg>',
     '',
   ].join('\n');

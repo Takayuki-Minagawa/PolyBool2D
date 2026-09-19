@@ -9,3 +9,10 @@ dist-ssr
 *.log
 coverage
 *.tsbuildinfo
+
+public/pdf-cmaps/
+public/pdf-fonts/
+playwright-report/
+test-results/
+
+.pages-artifact/

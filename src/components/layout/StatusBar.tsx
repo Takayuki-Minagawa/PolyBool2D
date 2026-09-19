@@ -1,3 +1,4 @@
+import { SaveIndicator } from './SaveIndicator';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../app/appStore';
 import { formatArea } from '../../app/units';
@@ -24,6 +25,7 @@ export function StatusBar() {
 
   return (
     <footer className="status-bar">
+      <SaveIndicator />
       <span>
         {t('status.tool')}: <strong>{t(toolMeta.labelKey)}</strong>
       </span>

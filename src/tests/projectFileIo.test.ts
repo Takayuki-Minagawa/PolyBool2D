@@ -26,8 +26,9 @@ describe('project file I/O', () => {
     await expect(importProjectFile(invalid)).resolves.toBeNull();
   });
 
-  it('downloads serialized JSON with a timestamped filename', () => {
+  it('downloads project JSON and retains its Blob until the browser can consume it', () => {
     const createObjectUrl = vi.fn(() => 'blob:project');
+    vi.useFakeTimers();
     const revokeObjectUrl = vi.fn();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -43,7 +44,10 @@ describe('project file I/O', () => {
 
     expect(createObjectUrl).toHaveBeenCalledOnce();
     expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60_000);
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:project');
+    vi.useRealTimers();
   });
 
   it('exposes recovery diagnostics to the file import caller', async () => {

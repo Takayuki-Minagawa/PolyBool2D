@@ -1,12 +1,20 @@
+import { cpSync, mkdirSync } from 'node:fs';
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { pwaServiceWorkerPlugin } from './build/pwaServiceWorker';
 
 const repoFromEnv = process.env.GITHUB_REPOSITORY?.split('/')[1];
 
 export default defineConfig({
-  plugins: [react(), pwaServiceWorkerPlugin()],
+  plugins: [react(), {
+    name: 'pdf-local-font-assets',
+    buildStart() {
+      mkdirSync('public/pdf-cmaps', { recursive: true });
+      cpSync('node_modules/pdfjs-dist/cmaps', 'public/pdf-cmaps', { recursive: true });
+      cpSync('node_modules/pdfjs-dist/standard_fonts', 'public/pdf-fonts', { recursive: true });
+    },
+  }, pwaServiceWorkerPlugin()],
   base: repoFromEnv ? `/${repoFromEnv}/` : '/',
   assetsInclude: ['**/*.md'],
   build: {

@@ -32,8 +32,13 @@ export type Layer = {
 
 export type EntityStyle = {
   fill: string;
+  fillOpacity?: number;
   stroke: string;
   strokeWidth: number;
+  dashArray?: number[];
+  dashOffset?: number;
+  lineCap?: 'butt' | 'round' | 'square';
+  lineJoin?: 'miter' | 'round' | 'bevel';
   opacity: number;
 };
 
@@ -85,6 +90,10 @@ export type LinearEntityKind =
 export type LineStyle = {
   stroke: string;
   strokeWidth: number;
+  dashArray?: number[];
+  dashOffset?: number;
+  lineCap?: 'butt' | 'round' | 'square';
+  lineJoin?: 'miter' | 'round' | 'bevel';
   opacity: number;
 };
 
@@ -131,6 +140,7 @@ export type Project = {
   createdAt: string;
   updatedAt: string;
   settings: ProjectSettings;
+  printLayout?: import('../persistence/printLayout').PrintLayout;
   layers: Layer[];
   entities: Entity[];
   groups?: EntityGroup[];

@@ -1,3 +1,4 @@
+import { projectStorage, hasProjectStorageAdapter } from './projectStorage';
 import { makeId } from '../app/idUtils';
 import type { Project } from '../app/projectTypes';
 import {
@@ -95,7 +96,7 @@ type ProjectRecoverySnapshot = {
 };
 
 function storageAvailable(): boolean {
-  return typeof localStorage !== 'undefined';
+  try { return Boolean(projectStorage()); } catch { return false; }
 }
 
 let underlayCleanupInFlight = false;
@@ -103,7 +104,7 @@ let underlayCleanupInFlight = false;
 function readPendingUnderlayDeletes(): string[] {
   if (!storageAvailable()) return [];
   try {
-    const raw = localStorage.getItem(PENDING_UNDERLAY_DELETES_KEY);
+    const raw = projectStorage().getItem(PENDING_UNDERLAY_DELETES_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     return Array.isArray(parsed)
@@ -121,9 +122,9 @@ function writePendingUnderlayDeletes(ids: readonly string[]): boolean {
   try {
     const unique = [...new Set(ids)].filter((id) => id.length > 0);
     if (unique.length === 0) {
-      localStorage.removeItem(PENDING_UNDERLAY_DELETES_KEY);
+      projectStorage().removeItem(PENDING_UNDERLAY_DELETES_KEY);
     } else {
-      localStorage.setItem(PENDING_UNDERLAY_DELETES_KEY, JSON.stringify(unique));
+      projectStorage().setItem(PENDING_UNDERLAY_DELETES_KEY, JSON.stringify(unique));
     }
     return true;
   } catch {
@@ -135,7 +136,7 @@ function writePendingUnderlayDeletes(ids: readonly string[]): boolean {
  * Retry durable underlay-deletion tombstones. A transient IndexedDB failure
  * must not turn a project deletion into a permanent orphaned Blob.
  */
-function retryPendingUnderlayDeletes(): void {
+export function retryPendingUnderlayDeletes(): void {
   if (!storageAvailable() || underlayCleanupInFlight) return;
   const pending = readPendingUnderlayDeletes();
   if (pending.length === 0) return;
@@ -176,7 +177,7 @@ function scheduleUnderlayCleanup(projectId: string): void {
     void deleteUnderlaysForProject(projectId).catch(() => undefined);
     return;
   }
-  retryPendingUnderlayDeletes();
+  if (!hasProjectStorageAdapter()) retryPendingUnderlayDeletes();
 }
 
 function projectKey(id: string): string {
@@ -213,7 +214,7 @@ function isSummary(value: unknown): value is StoredProjectSummary {
 
 function readIndex(): StoredProjectSummary[] {
   if (!storageAvailable()) return [];
-  const raw = localStorage.getItem(INDEX_KEY);
+  const raw = projectStorage().getItem(INDEX_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as Partial<ProjectIndex>;
@@ -229,7 +230,7 @@ function writeIndex(projects: StoredProjectSummary[]): boolean {
   const unique = new Map(projects.map((project) => [project.id, project]));
   const sorted = [...unique.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   try {
-    localStorage.setItem(
+    projectStorage().setItem(
       INDEX_KEY,
       JSON.stringify({ version: STORAGE_INDEX_VERSION, projects: sorted } satisfies ProjectIndex),
     );
@@ -247,7 +248,7 @@ function upsertIndex(project: Project): boolean {
 
 function readBackups(projectId: string): ProjectBackup[] {
   if (!storageAvailable()) return [];
-  const raw = localStorage.getItem(backupKey(projectId));
+  const raw = projectStorage().getItem(backupKey(projectId));
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -269,7 +270,7 @@ function readBackups(projectId: string): ProjectBackup[] {
 function writeBackups(projectId: string, backups: ProjectBackup[]): boolean {
   if (!storageAvailable()) return false;
   try {
-    localStorage.setItem(backupKey(projectId), JSON.stringify(backups.slice(0, MAX_PROJECT_BACKUPS)));
+    projectStorage().setItem(backupKey(projectId), JSON.stringify(backups.slice(0, MAX_PROJECT_BACKUPS)));
     return true;
   } catch {
     return false;
@@ -280,7 +281,7 @@ function readRecoverySnapshot(
   projectId: string,
 ): ProjectRecoverySnapshot | null {
   if (!storageAvailable()) return null;
-  const raw = localStorage.getItem(recoveryKey(projectId));
+  const raw = projectStorage().getItem(recoveryKey(projectId));
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -329,7 +330,7 @@ export function preserveProjectRecoverySource(
   }
   const resolvedSourceProjectId =
     sourceProjectId ?? (decoded.ok ? decoded.project.id : undefined);
-  const existingEnvelope = localStorage.getItem(recoveryKey(targetProjectId));
+  const existingEnvelope = projectStorage().getItem(recoveryKey(targetProjectId));
   const existing = readRecoverySnapshot(targetProjectId);
   if (existingEnvelope !== null && !existing) {
     // A malformed envelope may itself be the only surviving recovery record.
@@ -347,7 +348,7 @@ export function preserveProjectRecoverySource(
     );
   }
   try {
-    localStorage.setItem(
+    projectStorage().setItem(
       recoveryKey(targetProjectId),
       JSON.stringify({
         savedAt: new Date().toISOString(),
@@ -411,7 +412,7 @@ function retainCurrentVersionForRestore(
   projectId: string,
   protectedBackupId?: string,
 ): boolean {
-  const currentJson = localStorage.getItem(projectKey(projectId));
+  const currentJson = projectStorage().getItem(projectKey(projectId));
   if (currentJson === null) return true;
   const current = decodeProject(currentJson);
   if (
@@ -432,22 +433,22 @@ function retainCurrentVersionForRestore(
 function migrateLegacyProject(): void {
   if (!storageAvailable()) return;
   retryPendingUnderlayDeletes();
-  if (localStorage.getItem(MIGRATION_KEY) !== null) return;
+  if (projectStorage().getItem(MIGRATION_KEY) !== null) return;
 
-  const legacyJson = localStorage.getItem(LEGACY_PROJECT_KEY);
+  const legacyJson = projectStorage().getItem(LEGACY_PROJECT_KEY);
   const legacyDecode = legacyJson ? decodeProject(legacyJson) : null;
   const legacyProject = legacyDecode?.ok ? legacyDecode.project : null;
   let migrated = legacyProject === null;
 
   if (legacyProject && legacyJson) {
     try {
-      if (localStorage.getItem(projectKey(legacyProject.id)) === null) {
-        localStorage.setItem(projectKey(legacyProject.id), legacyJson);
+      if (projectStorage().getItem(projectKey(legacyProject.id)) === null) {
+        projectStorage().setItem(projectKey(legacyProject.id), legacyJson);
       }
       migrated = upsertIndex(legacyProject);
       if (migrated) {
-        localStorage.setItem(ACTIVE_PROJECT_KEY, legacyProject.id);
-        localStorage.removeItem(LEGACY_PROJECT_KEY);
+        projectStorage().setItem(ACTIVE_PROJECT_KEY, legacyProject.id);
+        projectStorage().removeItem(LEGACY_PROJECT_KEY);
       }
     } catch {
       migrated = false;
@@ -456,7 +457,7 @@ function migrateLegacyProject(): void {
 
   if (migrated) {
     try {
-      localStorage.setItem(MIGRATION_KEY, '1');
+      projectStorage().setItem(MIGRATION_KEY, '1');
     } catch {
       // A failed marker write only causes another idempotent migration attempt.
     }
@@ -493,10 +494,10 @@ function decodeStoredProject(
 function scanStoredProjects(): ScannedProject[] {
   if (!storageAvailable()) return [];
   const projects: ScannedProject[] = [];
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i);
+  for (let i = 0; i < projectStorage().length; i += 1) {
+    const key = projectStorage().key(i);
     if (!key?.startsWith(PROJECT_KEY_PREFIX)) continue;
-    const raw = localStorage.getItem(key);
+    const raw = projectStorage().getItem(key);
     if (!raw) continue;
     const storageId = storageIdFromProjectKey(key);
     projects.push({
@@ -535,16 +536,16 @@ export function listLocalProjects(): StoredProjectSummary[] {
 export function getActiveProjectId(): string | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
-  const id = localStorage.getItem(ACTIVE_PROJECT_KEY);
-  return id && localStorage.getItem(projectKey(id)) !== null ? id : null;
+  const id = projectStorage().getItem(ACTIVE_PROJECT_KEY);
+  return id && projectStorage().getItem(projectKey(id)) !== null ? id : null;
 }
 
 export function setActiveProjectId(id: string | null): boolean {
   if (!storageAvailable()) return false;
   migrateLegacyProject();
   try {
-    if (id === null) localStorage.removeItem(ACTIVE_PROJECT_KEY);
-    else if (localStorage.getItem(projectKey(id)) !== null) localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+    if (id === null) projectStorage().removeItem(ACTIVE_PROJECT_KEY);
+    else if (projectStorage().getItem(projectKey(id)) !== null) projectStorage().setItem(ACTIVE_PROJECT_KEY, id);
     else return false;
     return true;
   } catch {
@@ -555,7 +556,7 @@ export function setActiveProjectId(id: string | null): boolean {
 export function loadProjectByIdResult(id: string): ProjectDecodeResult | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
-  const raw = localStorage.getItem(projectKey(id));
+  const raw = projectStorage().getItem(projectKey(id));
   return raw ? decodeStoredProject(id, raw) : null;
 }
 
@@ -589,9 +590,9 @@ export function loadProjectFromLocal(): Project | null {
 export function saveProjectToLocal(project: Project): boolean {
   if (!storageAvailable()) return false;
   migrateLegacyProject();
-  const nextJson = serializeProject(project);
+  const nextJson = serializeStoredProject(project);
   const key = projectKey(project.id);
-  const previousJson = localStorage.getItem(key);
+  const previousJson = projectStorage().getItem(key);
   if (previousJson === nextJson) {
     // The project body is already durable. Index and active-project metadata
     // are repairable hints and must not turn this into a false save failure.
@@ -604,7 +605,7 @@ export function saveProjectToLocal(project: Project): boolean {
     if (previous.ok) {
       if (
         previous.sourceWasNormalized &&
-        serializeProject(previous.project) === nextJson
+        serializeStoredProject(previous.project) === nextJson
       ) {
         // Loading a recoverable file normalizes it in memory. Do not let the
         // first autosave silently erase the malformed records before the user
@@ -639,7 +640,7 @@ export function saveProjectToLocal(project: Project): boolean {
   // snapshot, saving the user's current work still takes priority.
   if (previousJson !== null) retainPreviousVersion(project.id, previousJson);
   try {
-    localStorage.setItem(key, nextJson);
+    projectStorage().setItem(key, nextJson);
   } catch {
     return false;
   }
@@ -654,7 +655,7 @@ export function deleteLocalProject(id: string): boolean {
   if (!storageAvailable()) return false;
   migrateLegacyProject();
   try {
-    localStorage.removeItem(projectKey(id));
+    projectStorage().removeItem(projectKey(id));
   } catch {
     return false;
   }
@@ -668,12 +669,12 @@ export function deleteLocalProject(id: string): boolean {
   // errors while pruning backups or hints must not report a false deletion
   // failure to the caller.
   try {
-    localStorage.removeItem(backupKey(id));
+    projectStorage().removeItem(backupKey(id));
   } catch {
     // Best effort.
   }
   try {
-    localStorage.removeItem(recoveryKey(id));
+    projectStorage().removeItem(recoveryKey(id));
   } catch {
     // Best effort. The project body is already gone.
   }
@@ -685,9 +686,9 @@ export function deleteLocalProject(id: string): boolean {
     // Best effort.
   }
   try {
-    if (localStorage.getItem(ACTIVE_PROJECT_KEY) === id) {
-      if (remaining[0]) localStorage.setItem(ACTIVE_PROJECT_KEY, remaining[0].id);
-      else localStorage.removeItem(ACTIVE_PROJECT_KEY);
+    if (projectStorage().getItem(ACTIVE_PROJECT_KEY) === id) {
+      if (remaining[0]) projectStorage().setItem(ACTIVE_PROJECT_KEY, remaining[0].id);
+      else projectStorage().removeItem(ACTIVE_PROJECT_KEY);
     }
   } catch {
     // listLocalProjects/loadProjectFromLocal can repair this hint later.
@@ -761,7 +762,7 @@ export function getProjectRecoverySnapshot(
 ): ProjectRecoverySnapshotSummary | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
-  const envelopeJson = localStorage.getItem(recoveryKey(projectId));
+  const envelopeJson = projectStorage().getItem(recoveryKey(projectId));
   if (envelopeJson === null) return null;
   const snapshot = readRecoverySnapshot(projectId);
   if (!snapshot) {
@@ -806,7 +807,7 @@ export function getProjectRecoverySnapshot(
 export function getProjectRecoverySourceJson(projectId: string): string | null {
   if (!storageAvailable()) return null;
   migrateLegacyProject();
-  const envelopeJson = localStorage.getItem(recoveryKey(projectId));
+  const envelopeJson = projectStorage().getItem(recoveryKey(projectId));
   if (envelopeJson === null) return null;
   return readRecoverySnapshot(projectId)?.projectJson ?? envelopeJson;
 }
@@ -840,7 +841,7 @@ export function restoreProjectRecoverySnapshot(
 export function deleteProjectRecoverySnapshot(projectId: string): boolean {
   if (!storageAvailable()) return false;
   try {
-    localStorage.removeItem(recoveryKey(projectId));
+    projectStorage().removeItem(recoveryKey(projectId));
     return true;
   } catch {
     return false;
@@ -916,5 +917,9 @@ export function clearLocalProject(): void {
   migrateLegacyProject();
   const activeId = getActiveProjectId();
   if (activeId) deleteLocalProject(activeId);
-  else localStorage.removeItem(LEGACY_PROJECT_KEY);
+  else projectStorage().removeItem(LEGACY_PROJECT_KEY);
+}
+
+function serializeStoredProject(project: Project): string {
+  return hasProjectStorageAdapter() ? JSON.stringify(project) : serializeProject(project);
 }
