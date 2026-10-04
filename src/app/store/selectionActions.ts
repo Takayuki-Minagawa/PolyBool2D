@@ -1,30 +1,7 @@
-import type { Project, ViewTransform } from '../projectTypes';
-import { isEntityEffectivelyLocked, isEntityEffectivelyVisible } from '../layers';
+import type { ViewTransform } from '../projectTypes';
+import { isEntityEffectivelyLocked, isEntityEffectivelyVisible, unlockedEntityIds } from '../layers';
 import { expandGroupedSelection } from '../groups';
 import type { AppSet, AppState } from './types';
-
-function selectableGroupedIds(project: Project, ids: Iterable<string>): string[] {
-  const entitiesById = new Map(
-    project.entities.map((entity) => [entity.id, entity]),
-  );
-  const selectableSeeds = [...ids].filter((id) => {
-    const entity = entitiesById.get(id);
-    return (
-      entity !== undefined &&
-      isEntityEffectivelyVisible(project, entity) &&
-      !isEntityEffectivelyLocked(project, entity)
-    );
-  });
-  return expandGroupedSelection(selectableSeeds, project.groups ?? [])
-    .filter((id) => {
-      const entity = entitiesById.get(id);
-      return (
-        entity !== undefined &&
-        isEntityEffectivelyVisible(project, entity) &&
-        !isEntityEffectivelyLocked(project, entity)
-      );
-    });
-}
 
 export function createSelectionActions(set: AppSet): Pick<
   AppState,
@@ -61,7 +38,7 @@ export function createSelectionActions(set: AppSet): Pick<
         }
         if (!additive) {
           return {
-            selectedEntityIds: selectableGroupedIds(s.project, [id]),
+            selectedEntityIds: unlockedEntityIds(s.project, [id]),
           };
         }
         if (s.selectedEntityIds.includes(id)) {
@@ -75,7 +52,7 @@ export function createSelectionActions(set: AppSet): Pick<
           };
         }
         return {
-          selectedEntityIds: selectableGroupedIds(
+          selectedEntityIds: unlockedEntityIds(
             s.project,
             [...s.selectedEntityIds, id],
           ),
@@ -84,7 +61,7 @@ export function createSelectionActions(set: AppSet): Pick<
 
     selectMany: (ids) =>
       set((state) => ({
-        selectedEntityIds: selectableGroupedIds(state.project, ids),
+        selectedEntityIds: unlockedEntityIds(state.project, ids),
       })),
 
     selectAll: () =>

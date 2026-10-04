@@ -29,7 +29,6 @@ type UseDrawingToolsOptions = {
   preview: DrawingPreview;
   shiftKeyRef: MutableRefObject<boolean>;
   setPreview: (preview: DrawingPreview) => void;
-  clearSelection: () => void;
 };
 
 function distanceInScreen(a: Point, b: Point, scale: number): number {
@@ -48,7 +47,6 @@ export function useDrawingTools({
   preview,
   shiftKeyRef,
   setPreview,
-  clearSelection,
 }: UseDrawingToolsOptions) {
   const { t } = useTranslation();
   const rectangleStartRef = useRef<Point | null>(null);
@@ -366,10 +364,6 @@ export function useDrawingTools({
         });
         if (created) state.setActiveTool('select');
       }
-      return true;
-    }
-    if (tool === 'select' && event.target === event.currentTarget) {
-      clearSelection();
       return true;
     }
     return false;

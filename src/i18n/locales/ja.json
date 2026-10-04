@@ -1,4 +1,8 @@
 {
+  "selection": {
+    "window": "囲み選択",
+    "crossing": "交差選択"
+  },
   "app": {
     "title": "PolyBool2D",
     "subtitle": "2D ポリゴン CAD"
@@ -208,7 +212,7 @@
     "guideAngularDimension": "中心・第1方向・第2方向を順にクリック",
     "guideAnnotation": "配置位置をクリックして注記テキストを入力",
     "guideKnife": "図形を横切る直線をドラッグ / 離すと確定",
-    "guideSelect": "図形をクリックして選択（Shift で追加）",
+    "guideSelect": "クリック・範囲選択：右へ囲む／左へ交差、Shiftで追加",
     "guidePan": "ドラッグで画面を移動 / ホイールでズーム",
     "guideVertex-edit": "頂点をドラッグで移動 / Alt+クリックで削除",
     "jsonImported": "「{{name}}」を読み込みました。",
