@@ -154,10 +154,12 @@ export function CadViewport() {
         ref={viewport.svgRef}
         width={size.width}
         height={size.height}
+        onPointerDownCapture={viewport.onPointerDownCapture}
         onPointerDown={viewport.onPointerDown}
         onPointerMove={viewport.onPointerMove}
         onPointerUp={viewport.onPointerUp}
         onPointerCancel={viewport.onPointerCancel}
+        onLostPointerCapture={viewport.onLostPointerCapture}
         onPointerLeave={viewport.onPointerLeave}
         onWheel={viewport.onWheel}
         onContextMenu={(event) => openContextMenu(null, event)}
@@ -241,6 +243,21 @@ export function CadViewport() {
           unit={project.unit}
           coordinatePrecision={project.settings.coordinatePrecision}
         />
+        {viewport.selectionBox && (
+          <rect
+            data-selection-mode={viewport.selectionBox.mode}
+            aria-label={t(`selection.${viewport.selectionBox.mode}`)}
+            x={Math.min(viewport.selectionBox.start.x, viewport.selectionBox.end.x)}
+            y={Math.min(viewport.selectionBox.start.y, viewport.selectionBox.end.y)}
+            width={Math.abs(viewport.selectionBox.end.x - viewport.selectionBox.start.x)}
+            height={Math.abs(viewport.selectionBox.end.y - viewport.selectionBox.start.y)}
+            fill={viewport.selectionBox.mode === 'window' ? '#2563eb' : '#16a34a'}
+            fillOpacity={0.12}
+            stroke={viewport.selectionBox.mode === 'window' ? '#2563eb' : '#16a34a'}
+            strokeDasharray={viewport.selectionBox.mode === 'crossing' ? '6 4' : undefined}
+            pointerEvents="none"
+          />
+        )}
         <Rulers
           width={size.width}
           height={size.height}

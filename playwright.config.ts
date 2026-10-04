@@ -11,8 +11,10 @@ export default defineConfig({
       : {},
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1',
+    // Fixtures import root-relative source modules. Keep this development test
+    // server independent of the GitHub Pages base used by production builds.
+    command: 'npm run dev -- --host 127.0.0.1 --base /',
     url: 'http://127.0.0.1:5173',
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
   },
 });

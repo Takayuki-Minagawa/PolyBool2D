@@ -179,13 +179,16 @@ export function useEntityDragging({
         return;
       }
       const alreadySelected = state.selectedEntityIds.includes(entityId);
-      const ids = alreadySelected ? state.selectedEntityIds : [entityId];
       if (!alreadySelected) selectEntity(entityId, false);
+      // Selecting a member can expand to its whole group. Snapshot that result
+      // so the first drag moves the same entities that are highlighted.
+      const ids = new Set(useAppStore.getState().selectedEntityIds);
       pendingSelectRef.current = alreadySelected ? entityId : null;
       const originals = new Map<string, Entity>();
       for (const item of state.project.entities) {
         if (
-          ids.includes(item.id) &&
+          ids.has(item.id) &&
+          isEntityEffectivelyVisible(state.project, item) &&
           !isEntityEffectivelyLocked(state.project, item)
         ) {
           originals.set(item.id, item);
@@ -242,6 +245,7 @@ export function useEntityDragging({
   }
 
   return {
+    isActive: () => moveDragRef.current !== null || vertexDragRef.current !== null,
     onPointerMove,
     onPointerUp,
     onShapePointerDown,

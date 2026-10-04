@@ -144,7 +144,16 @@ Measurements are temporary and are not saved to the project.
 ## 5. Selection and editing
 
 - Click for a single selection; `Shift`-click to add or remove an item.
-- Drag a selected polygon body to move the selected polygons together.
+- In Select (`V`), drag from blank canvas to the right to select fully enclosed entities
+  (solid blue box), or to the left to include intersecting entities (dashed green box).
+- Hold `Shift` when starting the box to add to the selection. A blank click clears it;
+  `Shift`-clicking blank canvas keeps it. `Esc` cancels a box without changing the selection.
+- Boxes use unsnapped coordinates and respect hidden/locked entities, layers and groups.
+  Selecting a group member also selects its editable group members outside the box.
+- Crossing selection checks actual paths and filled regions, including holes. Infinite guides
+  are selected only by crossing boxes. Annotation selection uses the insertion point;
+  text glyphs, arrowheads and stroke widths do not enlarge selection geometry.
+- Drag an entity body to move the selected entities or its group together, with one undo step.
 - Arrow-key movement works for both polygons and linear entities.
 - Hidden or locked entities cannot be selected or edited.
 - Copy / cut / paste supports polygons and linear entities. Each paste is offset progressively.

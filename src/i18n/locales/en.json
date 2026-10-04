@@ -1,4 +1,8 @@
 {
+  "selection": {
+    "window": "Window selection",
+    "crossing": "Crossing selection"
+  },
   "app": {
     "title": "PolyBool2D",
     "subtitle": "2D Polygon CAD"
@@ -208,7 +212,7 @@
     "guideAngularDimension": "Click center, first ray and second ray",
     "guideAnnotation": "Click the insertion point and enter annotation text",
     "guideKnife": "Drag a line across the polygon / release to confirm",
-    "guideSelect": "Click to select (Shift to add)",
+    "guideSelect": "Click or drag a box: right = window, left = crossing; Shift adds",
     "guidePan": "Drag to pan / wheel to zoom",
     "guideVertex-edit": "Drag vertices to move / Alt+click to delete",
     "jsonImported": "Loaded “{{name}}”.",

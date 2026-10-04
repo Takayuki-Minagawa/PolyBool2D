@@ -23,6 +23,7 @@ import { useDrawingKeyboard } from './useDrawingKeyboard';
 import { useDrawingTools } from './useDrawingTools';
 import { useEntityDragging } from './useEntityDragging';
 import { usePanZoom } from './usePanZoom';
+import { useBoxSelection } from './useBoxSelection';
 
 type ViewportSize = {
   width: number;
@@ -44,7 +45,6 @@ export function useCadViewportInteractions(size: ViewportSize) {
   const setView = useAppStore((state) => state.setView);
   const setPreview = useAppStore((state) => state.setPreview);
   const selectEntity = useAppStore((state) => state.selectEntity);
-  const clearSelection = useAppStore((state) => state.clearSelection);
   const deleteVertex = useAppStore((state) => state.deleteVertex);
   const updateEntityGeometryTransient = useAppStore(
     (state) => state.updateEntityGeometryTransient,
@@ -91,7 +91,6 @@ export function useCadViewportInteractions(size: ViewportSize) {
     preview,
     shiftKeyRef,
     setPreview,
-    clearSelection,
   });
 
   function getWorldPoint(
@@ -145,6 +144,8 @@ export function useCadViewportInteractions(size: ViewportSize) {
     getMousePoint,
   });
 
+  const boxSelection = useBoxSelection({ tool, projectId: project.id, view, getMousePoint });
+
   const drawingKeyboard = useDrawingKeyboard({
     fitViewToContent,
     cancelDrawing: drawing.cancelDrawing,
@@ -153,15 +154,27 @@ export function useCadViewportInteractions(size: ViewportSize) {
     spaceKeyRef,
   });
 
+  function onPointerDownCapture(event: ReactPointerEvent<SVGSVGElement>): void {
+    // A second pointer must not start a competing edit, pan or ruler gesture.
+    if (boxSelection.isActive() || entityDragging.isActive() || panZoom.isPanning()) {
+      event.stopPropagation();
+    }
+  }
+
   function onPointerDown(event: ReactPointerEvent<SVGSVGElement>): void {
-    if (panZoom.beginPan(event)) return;
+    if (panZoom.beginPan(event)) {
+      boxSelection.cancel();
+      return;
+    }
     if (event.button !== 0) return;
+    if (boxSelection.onPointerDown(event)) return;
     const world = getWorldPoint(getMousePoint(event));
     drawingKeyboard.resetNumericInput();
     drawing.onPointerDown(world, event);
   }
 
   function onPointerMove(event: ReactPointerEvent<SVGSVGElement>): void {
+    if (boxSelection.onPointerMove(event)) return;
     const screen = getMousePoint(event);
     if (panZoom.movePan(event) || entityDragging.onPointerMove(screen)) return;
     const world = getWorldPoint(screen);
@@ -170,11 +183,13 @@ export function useCadViewportInteractions(size: ViewportSize) {
   }
 
   function onPointerUp(event: ReactPointerEvent<SVGSVGElement>): void {
+    if (boxSelection.onPointerUp(event)) return;
     if (panZoom.endPan(event) || entityDragging.onPointerUp()) return;
     drawing.onPointerUp(getWorldPoint(getMousePoint(event)), event);
   }
 
-  function onPointerCancel(): void {
+  function onPointerCancel(event: ReactPointerEvent<SVGSVGElement>): void {
+    if (boxSelection.onPointerCancel(event)) return;
     panZoom.cancelPan();
     entityDragging.cancel();
     drawing.clearTransientToolState();
@@ -191,6 +206,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     fitViewToContent,
     zoomBy: panZoom.zoomBy,
     onWheel: panZoom.onWheel,
+    onPointerDownCapture,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -199,6 +215,8 @@ export function useCadViewportInteractions(size: ViewportSize) {
     onShapePointerDown: entityDragging.onShapePointerDown,
     onVertexPointerDown: entityDragging.onVertexPointerDown,
     numericInput: drawingKeyboard.numericInput,
+    selectionBox: boxSelection.selectionBox,
+    onLostPointerCapture: boxSelection.onPointerCancel,
     cursor:
       panZoom.isPanning() || tool === 'pan' || spaceKeyRef.current
         ? 'grabbing'
