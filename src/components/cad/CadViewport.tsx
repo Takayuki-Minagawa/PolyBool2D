@@ -154,6 +154,7 @@ export function CadViewport() {
         ref={viewport.svgRef}
         width={size.width}
         height={size.height}
+        onPointerDownCapture={viewport.onPointerDownCapture}
         onPointerDown={viewport.onPointerDown}
         onPointerMove={viewport.onPointerMove}
         onPointerUp={viewport.onPointerUp}

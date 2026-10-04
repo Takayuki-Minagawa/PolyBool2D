@@ -6,6 +6,7 @@ import { isEntityEffectivelyLocked, isEntityEffectivelyVisible } from '../../app
 import type { ToolName, ViewTransform } from '../../app/projectTypes';
 import { entityIntersectsSelection, type SelectionMode } from '../../app/selection';
 import { screenToWorld } from '../../app/transform';
+import { setViewportCursor } from '../../app/viewportStatusStore';
 import type { Point } from '../../geometry/types';
 
 const DRAG_THRESHOLD_PX = 3;
@@ -65,7 +66,8 @@ export function useBoxSelection({
   }, 30);
 
   function onPointerDown(event: ReactPointerEvent<SVGSVGElement>): boolean {
-    if (tool !== 'select' || event.button !== 0 || event.target !== event.currentTarget) {
+    if (tool !== 'select' || event.button !== 0 || event.isPrimary === false ||
+      event.target !== event.currentTarget) {
       return false;
     }
     if (dragRef.current) return true;
@@ -86,6 +88,7 @@ export function useBoxSelection({
     if (!drag) return false;
     if (drag.pointerId !== event.pointerId) return true;
     const end = getMousePoint(event);
+    setViewportCursor(screenToWorld(end, view));
     if (Math.hypot(end.x - drag.start.x, end.y - drag.start.y) >= DRAG_THRESHOLD_PX) {
       setSelectionBox({ start: drag.start, end, mode: end.x >= drag.start.x ? 'window' : 'crossing' });
     } else {
@@ -121,5 +124,23 @@ export function useBoxSelection({
     return true;
   }
 
-  return { selectionBox, onPointerDown, onPointerMove, onPointerUp, cancel };
+  function onPointerCancel(event: ReactPointerEvent<SVGSVGElement>): boolean {
+    const drag = dragRef.current;
+    if (!drag) return false;
+    if (drag.pointerId === event.pointerId) {
+      cancel();
+      setViewportCursor(null);
+    }
+    return true;
+  }
+
+  return {
+    selectionBox,
+    isActive: () => dragRef.current !== null,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    cancel,
+  };
 }

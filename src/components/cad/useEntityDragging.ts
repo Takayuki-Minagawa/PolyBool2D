@@ -245,6 +245,7 @@ export function useEntityDragging({
   }
 
   return {
+    isActive: () => moveDragRef.current !== null || vertexDragRef.current !== null,
     onPointerMove,
     onPointerUp,
     onShapePointerDown,

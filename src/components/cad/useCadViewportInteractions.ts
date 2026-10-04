@@ -154,6 +154,13 @@ export function useCadViewportInteractions(size: ViewportSize) {
     spaceKeyRef,
   });
 
+  function onPointerDownCapture(event: ReactPointerEvent<SVGSVGElement>): void {
+    // A second pointer must not start a competing edit, pan or ruler gesture.
+    if (boxSelection.isActive() || entityDragging.isActive() || panZoom.isPanning()) {
+      event.stopPropagation();
+    }
+  }
+
   function onPointerDown(event: ReactPointerEvent<SVGSVGElement>): void {
     if (panZoom.beginPan(event)) {
       boxSelection.cancel();
@@ -167,23 +174,23 @@ export function useCadViewportInteractions(size: ViewportSize) {
   }
 
   function onPointerMove(event: ReactPointerEvent<SVGSVGElement>): void {
+    if (boxSelection.onPointerMove(event)) return;
     const screen = getMousePoint(event);
     if (panZoom.movePan(event) || entityDragging.onPointerMove(screen)) return;
-    if (boxSelection.onPointerMove(event)) return;
     const world = getWorldPoint(screen);
     setViewportCursor(world);
     drawing.onPointerMove(world, event);
   }
 
   function onPointerUp(event: ReactPointerEvent<SVGSVGElement>): void {
-    if (panZoom.endPan(event) || entityDragging.onPointerUp()) return;
     if (boxSelection.onPointerUp(event)) return;
+    if (panZoom.endPan(event) || entityDragging.onPointerUp()) return;
     drawing.onPointerUp(getWorldPoint(getMousePoint(event)), event);
   }
 
-  function onPointerCancel(): void {
+  function onPointerCancel(event: ReactPointerEvent<SVGSVGElement>): void {
+    if (boxSelection.onPointerCancel(event)) return;
     panZoom.cancelPan();
-    boxSelection.cancel();
     entityDragging.cancel();
     drawing.clearTransientToolState();
     drawingKeyboard.resetNumericInput();
@@ -199,6 +206,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     fitViewToContent,
     zoomBy: panZoom.zoomBy,
     onWheel: panZoom.onWheel,
+    onPointerDownCapture,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -208,7 +216,7 @@ export function useCadViewportInteractions(size: ViewportSize) {
     onVertexPointerDown: entityDragging.onVertexPointerDown,
     numericInput: drawingKeyboard.numericInput,
     selectionBox: boxSelection.selectionBox,
-    onLostPointerCapture: boxSelection.cancel,
+    onLostPointerCapture: boxSelection.onPointerCancel,
     cursor:
       panZoom.isPanning() || tool === 'pan' || spaceKeyRef.current
         ? 'grabbing'

@@ -190,3 +190,52 @@ test('the first drag of an unselected group moves all its members in one undo tr
   await page.keyboard.press('ControlOrMeta+z');
   await expect.poll(geometry).toEqual({ origins: [{ x: 100, y: 100 }, { x: 250, y: 100 }], undoCount: 0 });
 });
+
+test.describe('native touch selection', () => {
+  test.use({ hasTouch: true });
+
+  test('a secondary touch cannot move geometry or cancel the primary selection rectangle', async ({ page, context }) => {
+    await loadFixture(page);
+    const geometry = () => page.evaluate(async () => {
+      const storePath = performance.getEntriesByType('resource')
+        .map((entry) => entry.name)
+        .find((url) => /\/src\/app\/appStore\.ts(?:\?|$)/.test(url))!;
+      const state = (await import(storePath)).useAppStore.getState();
+      return {
+        entities: state.project.entities,
+        undoCount: state.history.past.length,
+      };
+    });
+    const original = await geometry();
+    const client = await context.newCDPSession(page);
+    const start = await screenPoint(page, { x: 280, y: 170 });
+    const end = await screenPoint(page, { x: 70, y: 80 });
+    const secondary = await screenPoint(page, { x: 130, y: 140 });
+    const secondaryMoved = await screenPoint(page, { x: 140, y: 135 });
+    const primaryMoved = await screenPoint(page, { x: 60, y: 70 });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...start, id: 1 }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...end, id: 1 }] });
+    await expect(page.locator('[data-selection-mode="crossing"]')).toBeVisible();
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchStart', touchPoints: [{ ...end, id: 1 }, { ...secondary, id: 2 }],
+    });
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove', touchPoints: [{ ...end, id: 1 }, { ...secondaryMoved, id: 2 }],
+    });
+    await expect.poll(() => selection(page)).toEqual([]);
+    await expect.poll(geometry).toEqual(original);
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove', touchPoints: [{ ...primaryMoved, id: 1 }, { ...secondaryMoved, id: 2 }],
+    });
+    await expect.poll(geometry).toEqual(original);
+    // Removing one active contact releases that finger and its implicit capture.
+    // CDP touchEnd ends the entire gesture, so keep the primary in a touchMove.
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...primaryMoved, id: 1 }] });
+    await expect(page.locator('[data-selection-mode="crossing"]')).toBeVisible();
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect(page.locator('[data-selection-mode]')).toHaveCount(0);
+    await expect.poll(() => selection(page)).toEqual(['left', 'right', 'spanning-line']);
+    await expect.poll(geometry).toEqual(original);
+    await client.detach();
+  });
+});
